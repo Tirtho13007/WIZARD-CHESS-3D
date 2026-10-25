@@ -1,0 +1,84 @@
+{
+  "id": "/",
+  "name": "WIZARD CHESS 3D",
+  "short_name": "WizardChess",
+  "description": "Interactive 3D Gothic Cathedral Wizard Chess with sculpted stone pieces, cinematic melee captures, stone shatter physics, and single-player AI.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "fullscreen",
+  "display_override": ["fullscreen", "standalone", "window-controls-overlay"],
+  "orientation": "landscape",
+  "background_color": "#080a0f",
+  "theme_color": "#080a0f",
+  "lang": "en",
+  "dir": "ltr",
+  "categories": ["games", "board", "strategy", "entertainment"],
+  "prefer_related_applications": false,
+  "launch_handler": {
+    "client_mode": ["navigate-existing", "auto"]
+  },
+  "icons": [
+    {
+      "src": "/pwa-192x192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/pwa-512x512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/pwa-maskable-512x512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ],
+  "screenshots": [
+    {
+      "src": "/screenshot-wide.png",
+      "sizes": "1280x720",
+      "type": "image/png",
+      "form_factor": "wide",
+      "label": "Wizard Chess 3D Gothic Cathedral Board View"
+    },
+    {
+      "src": "/screenshot-narrow.png",
+      "sizes": "720x1280",
+      "type": "image/png",
+      "form_factor": "narrow",
+      "label": "Wizard Chess 3D Mobile Gameplay View"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Play as White",
+      "short_name": "Play White",
+      "description": "Start a new match in the Gothic Sanctum as White",
+      "url": "/?side=white",
+      "icons": [
+        {
+          "src": "/pwa-192x192.png",
+          "sizes": "192x192",
+          "type": "image/png"
+        }
+      ]
+    },
+    {
+      "name": "Play as Black",
+      "short_name": "Play Black",
+      "description": "Start a new match in the Gothic Sanctum as Black",
+      "url": "/?side=black",
+      "icons": [
+        {
+          "src": "/pwa-192x192.png",
+          "sizes": "192x192",
+          "type": "image/png"
+        }
+      ]
+    }
+  ]
+}
