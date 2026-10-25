@@ -27,17 +27,21 @@ jobs:
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
 
+      - name: Setup Gradle 8.7
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.7'
+
       - name: Install Web Dependencies & Build 3D Game Assets
         run: |
-          npm install
+          rm -f package-lock.json
+          npm install --legacy-peer-deps
           npm run build
 
       - name: Bundle Built Game Assets into Native Android APK
         run: |
-          mkdir -p android/app/src/main/assets/www
-          cp -r dist/* android/app/src/main/assets/www/
-          mkdir -p android/app/src/main/res/mipmap-xxxhdpi
-          cp public/pwa-512x512.png android/app/src/main/res/mipmap-xxxhdpi/ic_launcher.png || true
+          mkdir -p android/app/src/main/assets
+          cp -r dist/* android/app/src/main/assets/
 
       - name: Generate Android Signing Keystore
         working-directory: ./android/app
@@ -57,7 +61,7 @@ jobs:
       - name: Build Signed Native Android APK & Play Store AAB
         working-directory: ./android
         run: |
-          gradle assembleRelease bundleRelease --no-daemon
+          gradle assembleRelease bundleRelease --no-daemon --stacktrace
 
       - name: Upload Ready-to-Install Android APK
         uses: actions/upload-artifact@v4

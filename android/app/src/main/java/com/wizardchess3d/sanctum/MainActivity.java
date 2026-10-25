@@ -108,7 +108,7 @@ public class MainActivity extends AppCompatActivity implements IUnityAdsInitiali
         settings.setAllowContentAccess(true);
         settings.setCacheMode(WebSettings.LOAD_DEFAULT);
 
-        // Serve bundled game files from assets/www/ locally with zero browser URL bar
+        // Serve bundled game files from assets/ locally with zero browser URL bar
         final WebViewAssetLoader assetLoader = new WebViewAssetLoader.Builder()
                 .setDomain("appassets.androidplatform.net")
                 .addPathHandler("/", new WebViewAssetLoader.AssetsPathHandler(this))
@@ -128,7 +128,7 @@ public class MainActivity extends AppCompatActivity implements IUnityAdsInitiali
         webView.addJavascriptInterface(bridge, "AndroidUnityAds");
 
         // Load bundled 3D game directly from APK assets (no external browser)
-        webView.loadUrl("https://appassets.androidplatform.net/www/index.html");
+        webView.loadUrl("https://appassets.androidplatform.net/index.html");
     }
 
     @Override
