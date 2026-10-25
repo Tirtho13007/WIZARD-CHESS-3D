@@ -1,0 +1,69 @@
+name: Build Native Android APK & AAB (with Unity Ads SDK)
+
+on:
+  push:
+    branches: [ main, master ]
+  workflow_dispatch:
+
+jobs:
+  build-android:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Setup Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Web Dependencies & Build 3D Game Assets
+        run: |
+          npm install
+          npm run build
+
+      - name: Bundle Built Game Assets into Native Android APK
+        run: |
+          mkdir -p android/app/src/main/assets/www
+          cp -r dist/* android/app/src/main/assets/www/
+          mkdir -p android/app/src/main/res/mipmap-xxxhdpi
+          cp public/pwa-512x512.png android/app/src/main/res/mipmap-xxxhdpi/ic_launcher.png || true
+
+      - name: Generate Android Signing Keystore
+        working-directory: ./android/app
+        run: |
+          if [ ! -f release-key.jks ]; then
+            keytool -genkeypair -v \
+              -keystore release-key.jks \
+              -alias wizardchess \
+              -keyalg RSA \
+              -keysize 2048 \
+              -validity 10000 \
+              -storepass wizardchess123 \
+              -keypass wizardchess123 \
+              -dname "CN=Wizard Chess 3D, OU=Games, O=Sanctum, L=Dhaka, S=Dhaka, C=BD"
+          fi
+
+      - name: Build Signed Native Android APK & Play Store AAB
+        working-directory: ./android
+        run: |
+          gradle assembleRelease bundleRelease --no-daemon
+
+      - name: Upload Ready-to-Install Android APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: WizardChess3D-Native-Android-APK
+          path: |
+            android/app/build/outputs/apk/release/*.apk
+            android/app/build/outputs/bundle/release/*.aab
+            android/app/release-key.jks

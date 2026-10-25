@@ -1,0 +1,47 @@
+plugins {
+    id 'com.android.application'
+}
+
+android {
+    namespace 'com.wizardchess3d.sanctum'
+    compileSdk 34
+
+    defaultConfig {
+        applicationId "com.wizardchess3d.sanctum"
+        minSdk 23
+        targetSdk 34
+        versionCode 1
+        versionName "1.0.0"
+    }
+
+    signingConfigs {
+        release {
+            storeFile file("release-key.jks")
+            storePassword System.getenv("KEYSTORE_PASSWORD") ?: "wizardchess123"
+            keyAlias System.getenv("KEY_ALIAS") ?: "wizardchess"
+            keyPassword System.getenv("KEY_PASSWORD") ?: "wizardchess123"
+        }
+    }
+
+    buildTypes {
+        debug {
+            minifyEnabled false
+        }
+        release {
+            minifyEnabled false
+            signingConfig signingConfigs.release
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+}
+
+dependencies {
+    implementation 'androidx.appcompat:appcompat:1.6.1'
+    implementation 'androidx.webkit:webkit:1.11.0'
+    // Official Unity Ads Android SDK 4.x (https://docs.unity.com/en-us/grow/ads/unity-sdk/rewarded-ads)
+    implementation 'com.unity3d.ads:unity-ads:4.12.5'
+}

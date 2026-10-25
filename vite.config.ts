@@ -4,7 +4,7 @@ import react from '@vitejs/plugin-react';
 import { VitePWA } from 'vite-plugin-pwa';
 
 export default defineConfig(({ mode }) => {
-  const env = loadEnv(mode, '.', '');
+  loadEnv(mode, '.', '');
   return {
     server: {
       port: 3000,
@@ -23,6 +23,8 @@ export default defineConfig(({ mode }) => {
           'screenshot-wide.png',
           'screenshot-narrow.png',
           'privacy-policy.html',
+          'widget-template.json',
+          'widget-data.json',
         ],
         manifest: {
           id: '/',
@@ -39,11 +41,81 @@ export default defineConfig(({ mode }) => {
           scope: '/',
           lang: 'en',
           dir: 'ltr',
+          iarc_rating_id: 'e84b072d-71b3-4d3e-86ae-31a8ce4e53b7',
           categories: ['games', 'board', 'strategy', 'entertainment'],
           prefer_related_applications: false,
+          related_applications: [
+            {
+              platform: 'play',
+              url: 'https://play.google.com/store/apps/details?id=com.wizardchess3d.sanctum',
+              id: 'com.wizardchess3d.sanctum',
+            },
+          ],
+          scope_extensions: [
+            {
+              origin: 'https://vantergo-f99acfc00312.herokuapp.com',
+            },
+          ],
+          handle_links: 'preferred',
           launch_handler: {
             client_mode: ['navigate-existing', 'auto'],
           },
+          edge_side_panel: {
+            preferred_width: 480,
+          },
+          note_taking: {
+            new_note_url: '/?note=true',
+          },
+          share_target: {
+            action: '/',
+            method: 'GET',
+            enctype: 'application/x-www-form-urlencoded',
+            params: {
+              title: 'title',
+              text: 'text',
+              url: 'url',
+            },
+          },
+          file_handlers: [
+            {
+              action: '/',
+              accept: {
+                'application/x-chess-pgn': ['.pgn'],
+                'text/plain': ['.pgn', '.fen'],
+              },
+            },
+          ],
+          protocol_handlers: [
+            {
+              protocol: 'web+wizardchess',
+              url: '/?match=%s',
+            },
+          ],
+          widgets: [
+            {
+              name: 'Wizard Chess 3D Quick Match',
+              description: 'Jump straight into a 3D Gothic Sanctum chess duel.',
+              tag: 'wizard-chess-quick-match',
+              ms_ac_template: '/widget-template.json',
+              data: '/widget-data.json',
+              type: 'application/json',
+              screenshots: [
+                {
+                  src: '/screenshot-wide.png',
+                  sizes: '1280x720',
+                  label: 'Wizard Chess 3D Widget Preview',
+                },
+              ],
+              icons: [
+                {
+                  src: '/pwa-192x192.png',
+                  sizes: '192x192',
+                },
+              ],
+              auth: false,
+              update: 86400,
+            },
+          ],
           icons: [
             {
               src: '/pwa-192x192.png',
@@ -108,7 +180,7 @@ export default defineConfig(({ mode }) => {
               ],
             },
           ],
-        },
+        } as Record<string, unknown>,
         workbox: {
           maximumFileSizeToCacheInBytes: 20 * 1024 * 1024,
           globPatterns: ['**/*.{js,css,html,ico,png,svg,woff,woff2,b64,json}'],
