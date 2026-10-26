@@ -86,7 +86,6 @@ html, body, #root {
 
 .brand-pill {
   background: linear-gradient(180deg, #241f14 0%, #12151f 55%, #090b11 100%);
-  backdrop-filter: blur(12px);
   border: 1.5px solid rgba(212, 175, 55, 0.72);
   padding: 9px 18px;
   border-radius: 12px;
@@ -116,7 +115,6 @@ html, body, #root {
 
 .status-pill {
   background: linear-gradient(180deg, #1d2231 0%, #111520 58%, #0a0d14 100%);
-  backdrop-filter: blur(12px);
   border: 1px solid rgba(212, 175, 55, 0.36);
   padding: 8px 16px;
   border-radius: 12px;
@@ -277,8 +275,7 @@ html, body, #root {
   display: flex;
   align-items: center;
   gap: 14px;
-  background: linear-gradient(180deg, rgba(24, 29, 42, 0.9) 0%, rgba(11, 14, 22, 0.94) 100%);
-  backdrop-filter: blur(12px);
+  background: linear-gradient(180deg, rgba(24, 29, 42, 0.95) 0%, rgba(11, 14, 22, 0.98) 100%);
   border: 1px solid rgba(212, 175, 55, 0.42);
   padding: 6px 14px 6px 8px;
   border-radius: 14px;
@@ -313,8 +310,7 @@ html, body, #root {
 
 .captured-pill {
   pointer-events: auto;
-  background: linear-gradient(180deg, rgba(24, 29, 42, 0.9) 0%, rgba(11, 14, 22, 0.94) 100%);
-  backdrop-filter: blur(10px);
+  background: linear-gradient(180deg, rgba(24, 29, 42, 0.95) 0%, rgba(11, 14, 22, 0.98) 100%);
   border: 1px solid rgba(212, 175, 55, 0.35);
   padding: 7px 14px;
   border-radius: 12px;
@@ -383,7 +379,6 @@ body.cinematic-ui-hidden #hud-bottom {
     0 0 42px rgba(212, 175, 55, 0.25),
     inset 0 0 24px rgba(212, 175, 55, 0.12);
   text-align: center;
-  backdrop-filter: blur(12px);
 }
 
 .checkmate-banner::before {

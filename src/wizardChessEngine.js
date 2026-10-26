@@ -49,16 +49,43 @@ export function initWizardChess() {
       return { width: w, height: h, rotated90: false };
     }
 
+    const isMobileDevice = Boolean(
+      /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent || '') ||
+      (window.matchMedia && window.matchMedia('(pointer: coarse)').matches) ||
+      Math.min(window.innerWidth, window.innerHeight) <= 920
+    );
+    const isSoftwareGl = (() => {
+      try {
+        const probeCanvas = document.createElement('canvas');
+        const gl = probeCanvas.getContext('webgl2') || probeCanvas.getContext('webgl');
+        if (!gl) return true;
+        const ext = gl.getExtension('WEBGL_debug_renderer_info');
+        const param = ext ? ext.UNMASKED_RENDERER_WEBGL : gl.RENDERER;
+        const gpu = String(gl.getParameter(param) || '');
+        gl.getExtension('WEBGL_lose_context')?.loseContext();
+        return /SwiftShader|llvmpipe|softpipe|Software|Basic Render/i.test(gpu);
+      } catch (e) {
+        return false;
+      }
+    })();
+
     const initialVp = getLandscapeViewport();
+    const maxTargetDpr = isSoftwareGl
+      ? 1.0
+      : isMobileDevice
+      ? Math.min(window.devicePixelRatio || 1, 1.25)
+      : Math.min(window.devicePixelRatio || 1, 1.65);
+    let currentDynamicDpr = maxTargetDpr;
+
     const renderer = new THREE.WebGLRenderer({
-      antialias: true,
+      antialias: !isSoftwareGl && !isMobileDevice,
       powerPreference: 'high-performance',
       preserveDrawingBuffer: isAutomatedTest
     });
     renderer.setSize(initialVp.width, initialVp.height);
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-    renderer.shadowMap.enabled = true;
-    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    renderer.setPixelRatio(currentDynamicDpr);
+    renderer.shadowMap.enabled = !isSoftwareGl;
+    renderer.shadowMap.type = isMobileDevice ? THREE.PCFShadowMap : THREE.PCFSoftShadowMap;
     renderer.shadowMap.autoUpdate = false;
     renderer.shadowMap.needsUpdate = true;
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
@@ -223,18 +250,19 @@ export function initWizardChess() {
       return origHandleMouseMovePan(event);
     };
 
-    // Dramatic Chiaroscuro Cathedral & Board Lighting (restoring original-example 3D stone relief & warm firelight contrast)
-    const hemiLight = new THREE.HemisphereLight(0xd8ccb8, 0x261d14, 0.62);
+    // Dramatic Chiaroscuro Cathedral & Board Lighting (consolidated for high-FPS mobile & desktop PBR)
+    const hemiLight = new THREE.HemisphereLight(0xd8ccb8, 0x281e15, 0.78);
     scene.add(hemiLight);
 
-    const keyLight = new THREE.DirectionalLight(0xfff0d6, 2.55);
+    const keyLight = new THREE.DirectionalLight(0xfff0d6, 2.68);
     keyLight.position.set(3.8, 8.5, 4.2);
-    keyLight.castShadow = true;
-    keyLight.shadow.mapSize.width = 2048;
-    keyLight.shadow.mapSize.height = 2048;
-    keyLight.shadow.camera.near = 1.0;
-    keyLight.shadow.camera.far = 22.0;
-    const d = 3.2;
+    keyLight.castShadow = !isSoftwareGl;
+    const shadowMapDim = isMobileDevice ? 1024 : 1536;
+    keyLight.shadow.mapSize.width = shadowMapDim;
+    keyLight.shadow.mapSize.height = shadowMapDim;
+    keyLight.shadow.camera.near = 1.5;
+    keyLight.shadow.camera.far = 18.0;
+    const d = 3.0;
     keyLight.shadow.camera.left = -d;
     keyLight.shadow.camera.right = d;
     keyLight.shadow.camera.top = d;
@@ -243,13 +271,9 @@ export function initWizardChess() {
     scene.add(keyLight);
 
     // Subtle directional rim/fill (kept low so opposing directional lights never cancel normal-map mortar shadows)
-    const rimLight = new THREE.DirectionalLight(0xd8cbb8, 0.72);
+    const rimLight = new THREE.DirectionalLight(0xdce2f0, 0.92);
     rimLight.position.set(-4.5, 6.0, -6.5);
     scene.add(rimLight);
-
-    const southFillLight = new THREE.DirectionalLight(0xffe4c0, 0.52);
-    southFillLight.position.set(4.2, 5.8, 7.5);
-    scene.add(southFillLight);
 
     // Twin Flickering Brazier Point Lights (centered at x = +/-3.65, z = 0.00; flanking column bounce is evaluated in shader)
     const brazierCoords = [
@@ -642,29 +666,11 @@ export function initWizardChess() {
           varying vec3 vWorldNormal;
           varying float vHeightNorm;
 
-          float hash3(vec3 p) {
-            p = fract(p * vec3(443.897, 441.423, 437.195));
-            p += dot(p, p.yzx + 19.19);
-            return fract((p.x + p.y) * p.z);
-          }
-
-          float noise3(vec3 p) {
-            vec3 i = floor(p);
-            vec3 f = fract(p);
-            f = f * f * (3.0 - 2.0 * f);
-            return mix(
-              mix(
-                mix(hash3(i + vec3(0.0, 0.0, 0.0)), hash3(i + vec3(1.0, 0.0, 0.0)), f.x),
-                mix(hash3(i + vec3(0.0, 1.0, 0.0)), hash3(i + vec3(1.0, 1.0, 0.0)), f.x),
-                f.y
-              ),
-              mix(
-                mix(hash3(i + vec3(0.0, 0.0, 1.0)), hash3(i + vec3(1.0, 0.0, 1.0)), f.x),
-                mix(hash3(i + vec3(0.0, 1.0, 1.0)), hash3(i + vec3(1.0, 1.0, 1.0)), f.x),
-                f.y
-              ),
-              f.z
-            );
+          // Ultra-fast GPU harmonic flame turbulence (replaces 16-hash trilinear noise per fragment for 60 FPS mobile rendering)
+          float fastFlameTurbulence(vec3 p) {
+            float w1 = sin(p.x * 1.7 + sin(p.y * 1.3 + p.z * 1.5)) * 0.5 + 0.5;
+            float w2 = cos(p.z * 2.1 - sin(p.y * 1.9 - p.x * 1.4)) * 0.5 + 0.5;
+            return mix(w1, w2, 0.5);
           }
 
           void main() {
@@ -674,11 +680,11 @@ export function initWizardChess() {
 
             // Real-time port of Cycles LayerWeight.Facing^2.4 gaseous feathering
             float facing = clamp(abs(dot(N, V)), 0.0, 1.0);
-            float powFacing = pow(facing, 2.25);
+            float powFacing = facing * facing;
 
             // Fast upward-convecting 3D flame turbulence that actively carves the flame tips
-            float n1 = noise3(vec3(vLocalPos.x * 5.4, vLocalPos.y * 4.8 - uTime * 6.8, vLocalPos.z * 5.4 + uLayerSeed));
-            float n2 = noise3(vec3(vLocalPos.x * 10.2 + 1.9, vLocalPos.y * 8.5 - uTime * 10.5, vLocalPos.z * 10.2 - uLayerSeed));
+            float n1 = fastFlameTurbulence(vec3(vLocalPos.x * 5.4, vLocalPos.y * 4.8 - uTime * 6.8, vLocalPos.z * 5.4 + uLayerSeed));
+            float n2 = fastFlameTurbulence(vec3(vLocalPos.x * 9.8 + 1.9, vLocalPos.y * 8.2 - uTime * 10.2, vLocalPos.z * 9.8 - uLayerSeed));
             float shimmer = mix(n1, n2, 0.45);
 
             // Dynamic tip erosion so flame tongues visibly lick up and recede
@@ -693,7 +699,7 @@ export function initWizardChess() {
             float baseSoft = smoothstep(0.0, 0.06, h);
             float flickerPulse = 0.76 + 0.48 * shimmer;
             float alpha = clamp(zAlpha * baseSoft * powFacing * uOpacity * flickerPulse, 0.0, 1.0);
-            if (alpha < 0.004) discard;
+            if (alpha < 0.008) discard;
 
             gl_FragColor = vec4(col * uStrength, alpha);
           }
@@ -716,9 +722,11 @@ export function initWizardChess() {
         vertexShader: `
           varying vec3 vLocalPos;
           varying vec3 vWorldNormal;
+          varying float vStaticCrack;
           void main() {
             vLocalPos = position;
             vWorldNormal = normalize(mat3(modelMatrix) * normal);
+            vStaticCrack = fract(sin(dot(position * 18.0, vec3(12.9898, 78.233, 37.719))) * 43758.5453);
             gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
           }
         `,
@@ -726,41 +734,17 @@ export function initWizardChess() {
           uniform float uTime;
           varying vec3 vLocalPos;
           varying vec3 vWorldNormal;
-
-          float hash3(vec3 p) {
-            p = fract(p * vec3(443.897, 441.423, 437.195));
-            p += dot(p, p.yzx + 19.19);
-            return fract((p.x + p.y) * p.z);
-          }
-
-          float noise3(vec3 p) {
-            vec3 i = floor(p);
-            vec3 f = fract(p);
-            f = f * f * (3.0 - 2.0 * f);
-            return mix(
-              mix(
-                mix(hash3(i + vec3(0.0, 0.0, 0.0)), hash3(i + vec3(1.0, 0.0, 0.0)), f.x),
-                mix(hash3(i + vec3(0.0, 1.0, 0.0)), hash3(i + vec3(1.0, 1.0, 0.0)), f.x),
-                f.y
-              ),
-              mix(
-                mix(hash3(i + vec3(0.0, 0.0, 1.0)), hash3(i + vec3(1.0, 0.0, 1.0)), f.x),
-                mix(hash3(i + vec3(0.0, 1.0, 1.0)), hash3(i + vec3(1.0, 1.0, 1.0)), f.x),
-                f.y
-              ),
-              f.z
-            );
-          }
+          varying float vStaticCrack;
 
           void main() {
-            // Dark charred timber bark (#0B0807) fissured with glowing incandescent 2200K orange cracks & glowing coal bed base
-            float nCrack = noise3(vLocalPos * 18.0);
-            float nFine = noise3(vLocalPos * 38.0 + vec3(0.0, uTime * 0.25, 0.0));
+            // Fast harmonic ember crackle (zero 8-corner trilinear hash loops per pixel)
+            float nCrack = sin(vLocalPos.x * 22.0 + cos(vLocalPos.z * 24.0 + vLocalPos.y * 18.0)) * 0.5 + 0.5;
+            float nFine = cos(vLocalPos.x * 38.0 - sin(vLocalPos.z * 36.0 + uTime * 1.4)) * 0.5 + 0.5;
             float pulse = 0.88 + 0.12 * sin(uTime * 2.3 + vLocalPos.x * 4.0 + vLocalPos.z * 4.0);
 
             // Lower coal cone (y < 0.59) vs upper charred logs (y >= 0.59)
             float isCoalBed = 1.0 - smoothstep(0.56, 0.61, vLocalPos.y);
-            float crackMask = smoothstep(0.68, 0.88, nCrack * 0.7 + nFine * 0.3);
+            float crackMask = smoothstep(0.62, 0.88, mix(nCrack, vStaticCrack, 0.35) * 0.7 + nFine * 0.3);
             float underGlow = clamp(-vWorldNormal.y * 0.45 + 0.35, 0.0, 1.0) * smoothstep(0.72, 0.56, vLocalPos.y);
 
             vec3 charBark = vec3(0.035, 0.025, 0.020);
@@ -821,23 +805,7 @@ export function initWizardChess() {
 
     createBrazierWarmGlowHalos();
 
-    // Consolidated Window Point Lights (4 side-aisle + 2 end-wall lights instead of 22 separate PointLights;
-    // fine local window & column raking relief is evaluated analytically in applyCathedralStoneRealismShader)
-    for (const wz of [-8.8, 8.2]) {
-      for (const sideSign of [-1, 1]) {
-        const winLight = new THREE.PointLight(0x90beff, 4.2, 16.5, 1.35);
-        winLight.position.set(sideSign * 5.3, 4.1, wz);
-        scene.add(winLight);
-      }
-    }
-    const northWinLight = new THREE.PointLight(0x9bc4ff, 6.4, 20.0, 1.30);
-    northWinLight.position.set(0, 5.2, -18.2);
-    scene.add(northWinLight);
-
-    const southWinLight = new THREE.PointLight(0xffb85c, 6.4, 20.0, 1.30);
-    southWinLight.position.set(0, 5.2, 18.2);
-    scene.add(southWinLight);
-
+    // Window & end-wall grazing light is evaluated analytically at zero extra BRDF cost inside applyCathedralStoneRealismShader
     // Impact Flash Light (kept visible=true with intensity=0 when idle so Three.js never recompiles shaders mid-attack!)
     const impactFlashLight = new THREE.PointLight(0xffb74d, 0, 6.0, 1.5);
     impactFlashLight.visible = true;
@@ -1182,13 +1150,21 @@ export function initWizardChess() {
           if (resB64.ok) {
             const b64Text = (await resB64.text()).trim();
             if (b64Text.length > 64) {
-              const binStr = atob(b64Text);
-              const gzBytes = new Uint8Array(binStr.length);
-              for (let i = 0; i < binStr.length; i++) {
-                gzBytes[i] = binStr.charCodeAt(i);
+              // Fast native C++ browser data-URI base64 decode (avoids multi-million charCodeAt JS loop on main thread)
+              let gzBlob = null;
+              try {
+                const dataRes = await fetch(`data:application/octet-stream;base64,${b64Text}`);
+                gzBlob = await dataRes.blob();
+              } catch (innerErr) {
+                const binStr = atob(b64Text);
+                const gzBytes = new Uint8Array(binStr.length);
+                for (let i = 0; i < binStr.length; i++) {
+                  gzBytes[i] = binStr.charCodeAt(i);
+                }
+                gzBlob = new Blob([gzBytes]);
               }
               const ds = new DecompressionStream('gzip');
-              const stream = new Blob([gzBytes]).stream().pipeThrough(ds);
+              const stream = gzBlob.stream().pipeThrough(ds);
               arrayBuffer = await new Response(stream).arrayBuffer();
             }
           }
@@ -1246,198 +1222,201 @@ export function initWizardChess() {
       });
       const charredEmberLogsShader = createCharredEmberLogsShader();
 
-      // 1. Load Native Full-Height Cathedral Environment (shifted by z = -0.65 so the Obsidian Altar is centered at 0, 0.7215, 0)
-      const maxAniso = renderer.capabilities.getMaxAnisotropy() || 8;
-      await new Promise((resolve) => {
-        loadGltfModel('option8_cathedral').then(
-          (gltf) => {
-            const cathedralRoot = gltf.scene;
-            cathedralRoot.position.set(0, 0, -0.65);
+      // Load Cathedral + All 6 Chess Piece Models in PARALLEL for 3x faster startup!
+      const maxAniso = Math.min(renderer.capabilities.getMaxAnisotropy() || 4, isMobileDevice ? 4 : 8);
 
-            cathedralRoot.traverse((child) => {
-              if (!child.isMesh) return;
-              child.receiveShadow = true;
-              const meshName = child.name || '';
-              const mNameFirst = (Array.isArray(child.material) ? child.material[0]?.name : child.material?.name) || '';
+      const cathedralPromise = loadGltfModel('option8_cathedral')
+        .then((gltf) => {
+          const cathedralRoot = gltf.scene;
+          cathedralRoot.position.set(0, 0, -0.65);
 
-              if (meshName.includes('Brazier_Flame_Core') || mNameFirst.includes('Flame_Core')) {
-                child.material = flameCoreShader;
+          cathedralRoot.traverse((child) => {
+            if (!child.isMesh) return;
+            child.receiveShadow = true;
+            const meshName = child.name || '';
+            const mNameFirst = (Array.isArray(child.material) ? child.material[0]?.name : child.material?.name) || '';
+
+            if (meshName.includes('Brazier_Flame_Core') || mNameFirst.includes('Flame_Core')) {
+              child.material = flameCoreShader;
+              child.castShadow = false;
+              child.receiveShadow = false;
+              child.renderOrder = 12;
+              return;
+            }
+            if (meshName.includes('Brazier_Flame_Mid') || mNameFirst.includes('Flame_Mid')) {
+              stripIcosphereSparksFromFlameGeometry(child.geometry);
+              child.material = flameMidShader;
+              child.castShadow = false;
+              child.receiveShadow = false;
+              child.renderOrder = 11;
+              return;
+            }
+            if (meshName.includes('Brazier_Flame_Outer') || mNameFirst.includes('Flame_Outer')) {
+              child.material = flameOuterShader;
+              child.castShadow = false;
+              child.receiveShadow = false;
+              child.renderOrder = 10;
+              return;
+            }
+            if (meshName.includes('Embers_Logs') || mNameFirst.includes('Ember')) {
+              child.material = charredEmberLogsShader;
+              child.castShadow = false;
+              child.receiveShadow = false;
+              return;
+            }
+
+            const isShadowCasterProp =
+              meshName.includes('Obsidian_Altar') ||
+              meshName.includes('Altar_Golden_Runes');
+
+            const mats = Array.isArray(child.material) ? child.material : [child.material];
+            for (const mat of mats) {
+              if (!mat) continue;
+              const mName = mat.name || '';
+              const isAmberGlass =
+                mName.includes('Amber') ||
+                mName.includes('Narthex_Amber') ||
+                meshName.includes('Narthex_Amber');
+              const isGlass =
+                isAmberGlass ||
+                mName.includes('Glass') ||
+                mName.includes('Lancet') ||
+                mName.includes('Rose') ||
+                meshName.includes('Glass') ||
+                meshName.includes('Window');
+              const isRay = mName.includes('GodRay') || meshName.includes('GodRay');
+
+              for (const texKey of ['map', 'normalMap', 'roughnessMap', 'metalnessMap', 'emissiveMap']) {
+                if (mat[texKey]) {
+                  mat[texKey].anisotropy = maxAniso;
+                  mat[texKey].needsUpdate = true;
+                }
+              }
+
+              if (!mat.userData.origCaptured) {
+                mat.userData.origCaptured = true;
+                mat.userData.origMap = mat.map || null;
+                mat.userData.origNormalMap = mat.normalMap || null;
+                mat.userData.origRoughnessMap = mat.roughnessMap || null;
+                mat.userData.origEmissiveMap = mat.emissiveMap || null;
+              }
+
+              if (mat.normalMap && mat.normalScale) {
+                const isDoorMat = mName.includes('Oak') || mName.includes('Door') || meshName.includes('Door');
+                const nScale = isDoorMat ? 1.05 : 1.15;
+                mat.normalScale.set(nScale, nScale);
+              }
+
+              if (isAmberGlass) {
+                mat.vertexColors = false;
+                mat.color = new THREE.Color(0xffe6b8);
+                mat.emissive = new THREE.Color(0xffa033);
+                mat.emissiveIntensity = 2.45;
+                mat.roughness = 0.15;
+                mat.metalness = 0.0;
+                mat.side = THREE.DoubleSide;
+                child.castShadow = false;
+              } else if (isGlass) {
+                mat.vertexColors = false;
+                mat.color = new THREE.Color(0xdbeeff);
+                mat.emissive = new THREE.Color(0x68a8ff);
+                mat.emissiveIntensity = 2.65;
+                mat.roughness = 0.15;
+                mat.metalness = 0.0;
+                mat.side = THREE.DoubleSide;
+                child.castShadow = false;
+              } else if (isRay) {
+                child.visible = false;
                 child.castShadow = false;
                 child.receiveShadow = false;
-                child.renderOrder = 12;
-                return;
-              }
-              if (meshName.includes('Brazier_Flame_Mid') || mNameFirst.includes('Flame_Mid')) {
-                stripIcosphereSparksFromFlameGeometry(child.geometry);
-                child.material = flameMidShader;
-                child.castShadow = false;
-                child.receiveShadow = false;
-                child.renderOrder = 11;
-                return;
-              }
-              if (meshName.includes('Brazier_Flame_Outer') || mNameFirst.includes('Flame_Outer')) {
-                child.material = flameOuterShader;
-                child.castShadow = false;
-                child.receiveShadow = false;
-                child.renderOrder = 10;
-                return;
-              }
-              if (meshName.includes('Embers_Logs') || mNameFirst.includes('Ember')) {
-                child.material = charredEmberLogsShader;
-                child.castShadow = false;
-                child.receiveShadow = false;
-                return;
-              }
-
-              // Only the central Obsidian Altar casts real-time directional shadows;
-              // cathedral columns/walls/ceiling and twin braziers use baked 3D Chiaroscuro & BVH ray-traced AO
-              // so they never project clipped or directional shadows across the floor.
-              const isShadowCasterProp =
-                meshName.includes('Obsidian_Altar') ||
-                meshName.includes('Altar_Golden_Runes');
-
-              const mats = Array.isArray(child.material) ? child.material : [child.material];
-              for (const mat of mats) {
-                if (!mat) continue;
-                const mName = mat.name || '';
-                const isAmberGlass =
-                  mName.includes('Amber') ||
-                  mName.includes('Narthex_Amber') ||
-                  meshName.includes('Narthex_Amber');
-                const isGlass =
-                  isAmberGlass ||
-                  mName.includes('Glass') ||
-                  mName.includes('Lancet') ||
-                  mName.includes('Rose') ||
-                  meshName.includes('Glass') ||
-                  meshName.includes('Window');
-                const isRay = mName.includes('GodRay') || meshName.includes('GodRay');
-
-                for (const texKey of ['map', 'normalMap', 'roughnessMap', 'metalnessMap', 'emissiveMap']) {
-                  if (mat[texKey]) {
-                    mat[texKey].anisotropy = maxAniso;
-                    mat[texKey].needsUpdate = true;
-                  }
+              } else {
+                if (mat.map) {
+                  mat.vertexColors = true;
                 }
+                child.castShadow = isShadowCasterProp;
 
-                // Preserve native 1024x1024 GLB-baked textures before any look switching
-                if (!mat.userData.origCaptured) {
-                  mat.userData.origCaptured = true;
-                  mat.userData.origMap = mat.map || null;
-                  mat.userData.origNormalMap = mat.normalMap || null;
-                  mat.userData.origRoughnessMap = mat.roughnessMap || null;
-                  mat.userData.origEmissiveMap = mat.emissiveMap || null;
+                if (mName.includes('Floor') || mName.includes('Flagstone') || meshName.includes('Floor')) {
+                  applyCathedralStoneRealismShader(mat, true);
+                  if (!cathedralFloorMats.includes(mat)) cathedralFloorMats.push(mat);
+                } else if (
+                  mName.includes('Column_Stone') ||
+                  mName.includes('Tracery') ||
+                  meshName.includes('Plinth') ||
+                  meshName.includes('Tracery')
+                ) {
+                  applyCathedralStoneRealismShader(mat, false);
+                  if (!cathedralColumnMats.includes(mat)) cathedralColumnMats.push(mat);
+                } else if (
+                  mName.includes('Gothic_Ashlar') ||
+                  mName.includes('Ashlar') ||
+                  mName.includes('Vault') ||
+                  meshName.includes('Cathedral_Stone')
+                ) {
+                  applyCathedralStoneRealismShader(mat, false);
+                  if (!cathedralWallMats.includes(mat)) cathedralWallMats.push(mat);
                 }
+              }
+              mat.needsUpdate = true;
+            }
+          });
 
-                if (mat.normalMap && mat.normalScale) {
-                  const isDoorMat = mName.includes('Oak') || mName.includes('Door') || meshName.includes('Door');
-                  const nScale = isDoorMat ? 1.05 : 1.15;
-                  mat.normalScale.set(nScale, nScale);
-                }
+          setWallStoneLook(0);
+          setFloorStoneLook(0);
+          scene.add(cathedralRoot);
 
-                if (isAmberGlass) {
-                  mat.vertexColors = false;
-                  mat.color = new THREE.Color(0xffe6b8);
-                  mat.emissive = new THREE.Color(0xffa033);
-                  mat.emissiveIntensity = 2.45;
-                  mat.roughness = 0.15;
-                  mat.metalness = 0.0;
-                  mat.side = THREE.DoubleSide;
-                  child.castShadow = false;
-                } else if (isGlass) {
-                  mat.vertexColors = false;
-                  mat.color = new THREE.Color(0xdbeeff);
-                  mat.emissive = new THREE.Color(0x68a8ff);
-                  mat.emissiveIntensity = 2.65;
-                  mat.roughness = 0.15;
-                  mat.metalness = 0.0;
-                  mat.side = THREE.DoubleSide;
-                  child.castShadow = false;
-                } else if (isRay) {
-                  child.visible = false;
-                  child.castShadow = false;
-                  child.receiveShadow = false;
-                } else {
-                  if (mat.map) {
-                    mat.vertexColors = true;
-                  }
-                  child.castShadow = isShadowCasterProp;
+          // Freeze static cathedral world matrices so Three.js never recomputes them every frame!
+          cathedralRoot.updateMatrixWorld(true);
+          cathedralRoot.traverse((child) => {
+            child.matrixAutoUpdate = false;
+          });
+          boardGroup.updateMatrixWorld(true);
+          boardGroup.traverse((child) => {
+            child.matrixAutoUpdate = false;
+          });
 
-                  // Register Wall, Column/Arch/Plinth, and Floor stone materials for live 6-look switching & Realism Shader
-                  if (mName.includes('Floor') || mName.includes('Flagstone') || meshName.includes('Floor')) {
-                    applyCathedralStoneRealismShader(mat, true);
-                    if (!cathedralFloorMats.includes(mat)) cathedralFloorMats.push(mat);
-                  } else if (
-                    mName.includes('Column_Stone') ||
-                    mName.includes('Tracery') ||
-                    meshName.includes('Plinth') ||
-                    meshName.includes('Tracery')
-                  ) {
-                    applyCathedralStoneRealismShader(mat, false);
-                    if (!cathedralColumnMats.includes(mat)) cathedralColumnMats.push(mat);
-                  } else if (
-                    mName.includes('Gothic_Ashlar') ||
-                    mName.includes('Ashlar') ||
-                    mName.includes('Vault') ||
-                    meshName.includes('Cathedral_Stone')
-                  ) {
-                    applyCathedralStoneRealismShader(mat, false);
-                    if (!cathedralWallMats.includes(mat)) cathedralWallMats.push(mat);
-                  }
-                }
-                mat.needsUpdate = true;
+          bumpProgress('Cathedral Architecture Loaded...');
+        })
+        .catch((err) => {
+          console.warn('Cathedral GLB load warning:', err);
+          bumpProgress('Cathedral Loaded');
+        });
+
+      const piecePromises = PIECE_TYPES.map((type) =>
+        loadGltfModel(`${type}_white`)
+          .then((gltf) => {
+            const toRemove = [];
+            gltf.scene.traverse((child) => {
+              const nm = child.name || '';
+              if (nm.includes('Icosphere') || nm.includes('glTF_not_exported')) {
+                child.visible = false;
+                toRemove.push(child);
               }
             });
-
-            // Initialize default Look 1/6 (Original Ashlar & Abbey Flagstone) on Wall/Column Stone and Floor Stone
-            setWallStoneLook(0);
-            setFloorStoneLook(0);
-            scene.add(cathedralRoot);
-
-            bumpProgress('Cathedral Architecture Loaded...');
-            resolve();
-          },
-          (err) => {
-            console.warn('Cathedral GLB load warning:', err);
-            bumpProgress('Cathedral Loaded');
-            resolve();
-          }
-        );
-      });
-
-      // 2. Load 6 Sculpted & Rigged Chess Piece Models (shared between White & Black with PBR materials)
-      for (const type of PIECE_TYPES) {
-        await new Promise((resolve) => {
-          loadGltfModel(`${type}_white`).then(
-            (gltf) => {
-              const toRemove = [];
-              gltf.scene.traverse((child) => {
-                const nm = child.name || '';
-                if (nm.includes('Icosphere') || nm.includes('glTF_not_exported')) {
-                  child.visible = false;
-                  toRemove.push(child);
-                }
-              });
-              for (const rem of toRemove) {
-                if (rem.parent) rem.parent.remove(rem);
-              }
-
-              const tpl = {
-                scene: gltf.scene,
-                animations: gltf.animations || []
-              };
-              pieceTemplates[`${type}_w`] = tpl;
-              pieceTemplates[`${type}_b`] = tpl;
-              bumpProgress(`Summoned ${type.toUpperCase()} Statue...`);
-              resolve();
-            },
-            (err) => {
-              console.warn(`Piece load warning (${type}):`, err);
-              bumpProgress(`Loaded ${type}`);
-              resolve();
+            for (const rem of toRemove) {
+              if (rem.parent) rem.parent.remove(rem);
             }
-          );
-        });
+
+            const tpl = {
+              scene: gltf.scene,
+              animations: gltf.animations || []
+            };
+            pieceTemplates[`${type}_w`] = tpl;
+            pieceTemplates[`${type}_b`] = tpl;
+            bumpProgress(`Summoned ${type.toUpperCase()} Statue...`);
+          })
+          .catch((err) => {
+            console.warn(`Piece load warning (${type}):`, err);
+            bumpProgress(`Loaded ${type}`);
+          })
+      );
+
+      await Promise.all([cathedralPromise, ...piecePromises]);
+
+      // Pre-warm shaders before hiding loading screen to eliminate first-frame stutter
+      if (!isSoftwareGl) {
+        try {
+          renderer.compile(scene, camera);
+        } catch (e) {}
       }
 
       document.getElementById('loading-overlay')?.classList.add('hidden');
@@ -1522,69 +1501,109 @@ export function initWizardChess() {
       }
     }
 
-    function instantiatePiece(type, color, r, c) {
-      const tpl = pieceTemplates[`${type}_${color}`];
-      let root;
-      let mixer = null;
-      const actions = {};
+    // Zero-Allocation 3D Piece Pool (reuses cloned SkinnedMeshes & AnimationMixers across New Game / Undo / Promotion)
+    const piecePool = {};
+    const activePiecesList = [];
 
-      if (tpl && tpl.scene) {
-        root = SkeletonUtils.clone(tpl.scene);
-        const primaryMat = color === 'w' ? whitePieceMat : blackPieceMat;
-        root.traverse((child) => {
-          const nm = child.name || '';
-          if (nm.includes('Icosphere') || nm.includes('glTF_not_exported')) {
-            child.visible = false;
-            return;
-          }
-          if (child.isMesh) {
-            const mName = child.material?.name || '';
-            if (mName.includes('Gold') || mName.includes('Trim') || mName.includes('Bronze') || mName.includes('Glow')) {
-              child.material = goldTrimMat;
-            } else if (mName.includes('Steel')) {
-              child.material = forgedSteelMat;
-            } else {
-              child.material = primaryMat;
+    function recyclePieceInstance(piece) {
+      if (!piece) return;
+      if (piece.mesh && piece.mesh.parent) {
+        piece.mesh.parent.remove(piece.mesh);
+      }
+      if (piece.mixer) {
+        piece.mixer.stopAllAction();
+      }
+      piece.currentAction = null;
+      piece.isIdleState = true;
+      const idx = activePiecesList.indexOf(piece);
+      if (idx !== -1) activePiecesList.splice(idx, 1);
+      const poolKey = `${piece.type}_${piece.color}`;
+      if (!piecePool[poolKey]) piecePool[poolKey] = [];
+      piecePool[poolKey].push(piece);
+    }
+
+    function instantiatePiece(type, color, r, c) {
+      const poolKey = `${type}_${color}`;
+      let pieceObj = piecePool[poolKey]?.pop() || null;
+
+      if (!pieceObj) {
+        const tpl = pieceTemplates[poolKey];
+        let root;
+        let mixer = null;
+        const actions = {};
+
+        if (tpl && tpl.scene) {
+          root = SkeletonUtils.clone(tpl.scene);
+          const primaryMat = color === 'w' ? whitePieceMat : blackPieceMat;
+          root.traverse((child) => {
+            const nm = child.name || '';
+            if (nm.includes('Icosphere') || nm.includes('glTF_not_exported')) {
+              child.visible = false;
+              return;
             }
-            child.castShadow = true;
-            child.receiveShadow = true;
+            if (child.isMesh) {
+              const mName = child.material?.name || '';
+              if (mName.includes('Gold') || mName.includes('Trim') || mName.includes('Bronze') || mName.includes('Glow')) {
+                child.material = goldTrimMat;
+              } else if (mName.includes('Steel')) {
+                child.material = forgedSteelMat;
+              } else {
+                child.material = primaryMat;
+              }
+              child.castShadow = true;
+              child.receiveShadow = true;
+            }
+          });
+          mixer = new THREE.AnimationMixer(root);
+          for (const clip of tpl.animations) {
+            actions[clip.name] = mixer.clipAction(clip);
           }
-        });
-        mixer = new THREE.AnimationMixer(root);
-        for (const clip of tpl.animations) {
-          actions[clip.name] = mixer.clipAction(clip);
+        } else {
+          root = new THREE.Mesh(
+            new THREE.CylinderGeometry(0.1, 0.14, 0.42, 16),
+            color === 'w' ? whitePieceMat : blackPieceMat
+          );
         }
-        activeMixers.push(mixer);
-      } else {
-        root = new THREE.Mesh(
-          new THREE.CylinderGeometry(0.1, 0.14, 0.42, 16),
-          color === 'w' ? whitePieceMat : blackPieceMat
-        );
+
+        pieceObj = {
+          type,
+          color,
+          r,
+          c,
+          mesh: root,
+          mixer,
+          actions,
+          currentAction: null,
+          isIdleState: true,
+          fadeUntilTime: 0,
+          hasMoved: false
+        };
+
+        root.traverse((child) => {
+          child.userData.piece = pieceObj;
+        });
       }
 
+      pieceObj.r = r;
+      pieceObj.c = c;
+      pieceObj.hasMoved = false;
+      pieceObj.currentAction = null;
+      pieceObj.isIdleState = true;
+
+      const root = pieceObj.mesh;
       const worldPos = boardToWorld(r, c);
       root.position.copy(worldPos);
       const scale = BOARD_SQ_SIZE;
       root.scale.set(scale, scale, scale);
-      // White (at +Z, r=6,7) faces -Z (Math.PI); Black (at -Z, r=0,1) faces +Z (0)
-      root.rotation.y = color === 'w' ? Math.PI : 0;
+      root.rotation.set(0, color === 'w' ? Math.PI : 0, 0);
       scene.add(root);
 
-      const pieceObj = {
-        type,
-        color,
-        r,
-        c,
-        mesh: root,
-        mixer,
-        actions,
-        currentAction: null,
-        hasMoved: false
-      };
-
-      root.traverse((child) => {
-        child.userData.piece = pieceObj;
-      });
+      if (pieceObj.mixer && !activeMixers.includes(pieceObj.mixer)) {
+        activeMixers.push(pieceObj.mixer);
+      }
+      if (!activePiecesList.includes(pieceObj)) {
+        activePiecesList.push(pieceObj);
+      }
 
       playPieceClip(pieceObj, 'Idle', true, 0);
       return pieceObj;
@@ -1612,6 +1631,9 @@ export function initWizardChess() {
       const nextAction = piece.actions[key];
       const isIdle = lowerKw.includes('idle');
       const isAttack = lowerKw.includes('attack');
+      piece.isIdleState = isIdle;
+      piece.fadeUntilTime = (typeof elapsedTotal === 'number' ? elapsedTotal : 0) + (fadeSeconds || 0) + 0.1;
+
       if (piece.currentAction && piece.currentAction !== nextAction) {
         piece.currentAction.fadeOut(fadeSeconds);
       }
@@ -1640,13 +1662,14 @@ export function initWizardChess() {
     function clearAllPieces() {
       for (let r = 0; r < 8; r++) {
         for (let c = 0; c < 8; c++) {
-          if (boardState[r][c] && boardState[r][c].mesh) {
-            scene.remove(boardState[r][c].mesh);
+          if (boardState[r][c]) {
+            recyclePieceInstance(boardState[r][c]);
           }
           boardState[r][c] = null;
         }
       }
       activeMixers.length = 0;
+      activePiecesList.length = 0;
     }
 
     // Scripted Chess Notation & Step-Through Choreography State (Features 3a, 3b, 3c)
@@ -1987,6 +2010,24 @@ export function initWizardChess() {
     // =========================================================================
     // Square Highlights
     // =========================================================================
+    // Shared Square Highlight Geometries & Materials (Zero per-click GPU allocations)
+    const sharedSelRingGeo = new THREE.RingGeometry(0.115, 0.155, 24);
+    sharedSelRingGeo.rotateX(-Math.PI / 2);
+    const sharedSelRingMat = new THREE.MeshBasicMaterial({ color: 0xf5d76e, side: THREE.DoubleSide });
+
+    const sharedCapRingGeo = new THREE.RingGeometry(0.12, 0.16, 24);
+    sharedCapRingGeo.rotateX(-Math.PI / 2);
+    const sharedCapRingMat = new THREE.MeshBasicMaterial({ color: 0xe63946, side: THREE.DoubleSide });
+
+    const sharedMoveDotGeo = new THREE.CircleGeometry(0.06, 18);
+    sharedMoveDotGeo.rotateX(-Math.PI / 2);
+    const sharedMoveDotMat = new THREE.MeshBasicMaterial({
+      color: 0x4ea8de,
+      transparent: true,
+      opacity: 0.85,
+      side: THREE.DoubleSide
+    });
+
     function clearSquareHighlights() {
       while (squareHighlightsGroup.children.length > 0) {
         squareHighlightsGroup.remove(squareHighlightsGroup.children[0]);
@@ -1995,10 +2036,7 @@ export function initWizardChess() {
 
     function showSquareHighlights(r, c, moves) {
       clearSquareHighlights();
-      const selGeo = new THREE.RingGeometry(0.115, 0.155, 32);
-      selGeo.rotateX(-Math.PI / 2);
-      const selMat = new THREE.MeshBasicMaterial({ color: 0xf5d76e, side: THREE.DoubleSide });
-      const selMesh = new THREE.Mesh(selGeo, selMat);
+      const selMesh = new THREE.Mesh(sharedSelRingGeo, sharedSelRingMat);
       const selPos = boardToWorld(r, c);
       selMesh.position.set(selPos.x, BOARD_SURFACE_Y + 0.01, selPos.z);
       squareHighlightsGroup.add(selMesh);
@@ -2006,22 +2044,11 @@ export function initWizardChess() {
       for (const m of moves) {
         const pos = boardToWorld(m.r, m.c);
         if (m.capture) {
-          const capGeo = new THREE.RingGeometry(0.12, 0.16, 32);
-          capGeo.rotateX(-Math.PI / 2);
-          const capMat = new THREE.MeshBasicMaterial({ color: 0xe63946, side: THREE.DoubleSide });
-          const capMesh = new THREE.Mesh(capGeo, capMat);
+          const capMesh = new THREE.Mesh(sharedCapRingGeo, sharedCapRingMat);
           capMesh.position.set(pos.x, BOARD_SURFACE_Y + 0.012, pos.z);
           squareHighlightsGroup.add(capMesh);
         } else {
-          const dotGeo = new THREE.CircleGeometry(0.06, 24);
-          dotGeo.rotateX(-Math.PI / 2);
-          const dotMat = new THREE.MeshBasicMaterial({
-            color: 0x4ea8de,
-            transparent: true,
-            opacity: 0.85,
-            side: THREE.DoubleSide
-          });
-          const dotMesh = new THREE.Mesh(dotGeo, dotMat);
+          const dotMesh = new THREE.Mesh(sharedMoveDotGeo, sharedMoveDotMat);
           dotMesh.position.set(pos.x, BOARD_SURFACE_Y + 0.01, pos.z);
           squareHighlightsGroup.add(dotMesh);
         }
@@ -2035,7 +2062,8 @@ export function initWizardChess() {
 
     function spawnStoneShatter(worldPos, color) {
       const mat = color === 'w' ? whitePieceMat : blackPieceMat;
-      for (let i = 0; i < 32; i++) {
+      const shardCount = isMobileDevice ? 18 : 28;
+      for (let i = 0; i < shardCount; i++) {
         const sz = 0.024 + Math.random() * 0.048;
         const frag = new THREE.Mesh(sharedShardGeo, mat);
         frag.scale.setScalar(sz);
@@ -2044,7 +2072,7 @@ export function initWizardChess() {
           worldPos.y + 0.10 + Math.random() * 0.28,
           worldPos.z + (Math.random() - 0.5) * 0.16
         );
-        frag.castShadow = true;
+        frag.castShadow = !isMobileDevice;
         scene.add(frag);
         shatterDebris.push({
           mesh: frag,
@@ -2059,7 +2087,7 @@ export function initWizardChess() {
             Math.random() * 9,
             Math.random() * 9
           ),
-          life: 2.2
+          life: 2.0
         });
       }
       impactFlashLight.position.set(worldPos.x, worldPos.y + 0.4, worldPos.z);
@@ -2511,7 +2539,7 @@ export function initWizardChess() {
 
         // Pawn Promotion to Queen
         if (piece.type === 'pawn' && (toR === 0 || toR === 7)) {
-          scene.remove(piece.mesh);
+          recyclePieceInstance(piece);
           const promoted = instantiatePiece('queen', piece.color, toR, toC);
           promoted.hasMoved = true;
           boardState[toR][toC] = promoted;
@@ -2686,7 +2714,7 @@ export function initWizardChess() {
               window.wizardChessAudio?.playStoneShatter?.();
               if (captured && captured.mesh) {
                 const shatterOrigin = captured.mesh.position.clone();
-                scene.remove(captured.mesh);
+                recyclePieceInstance(captured);
                 spawnStoneShatter(shatterOrigin, captured.color);
               }
             }
@@ -3669,19 +3697,21 @@ export function initWizardChess() {
     // =========================================================================
     function spawnKingFallImpact(worldPos, color) {
       const mat = color === 'w' ? whitePieceMat : blackPieceMat;
-      for (let i = 0; i < 18; i++) {
+      const count = isMobileDevice ? 12 : 18;
+      for (let i = 0; i < count; i++) {
         const sz = 0.015 + Math.random() * 0.028;
-        const geo = new THREE.DodecahedronGeometry(sz, 0);
-        const frag = new THREE.Mesh(geo, mat);
+        const frag = new THREE.Mesh(sharedShardGeo, mat);
+        frag.scale.setScalar(sz);
         frag.position.set(
           worldPos.x + (Math.random() - 0.5) * 0.14,
           BOARD_SURFACE_Y + 0.04 + Math.random() * 0.10,
           worldPos.z + (Math.random() - 0.5) * 0.14
         );
-        frag.castShadow = true;
+        frag.castShadow = !isMobileDevice;
         scene.add(frag);
         shatterDebris.push({
           mesh: frag,
+          baseScale: sz,
           vel: new THREE.Vector3(
             (Math.random() - 0.5) * 1.45,
             0.65 + Math.random() * 1.25,
@@ -5048,15 +5078,58 @@ export function initWizardChess() {
     };
 
     // =========================================================================
-    // Main Animation Loop
+    // Main Animation Loop (Zero-GC Preallocated Vectors & Smart Skeletal Mixer Throttling)
     // =========================================================================
     let elapsedTotal = 0;
+    let frameTickCounter = 0;
+    let idleMixerCursor = 0;
+    const _prevCamPos = new THREE.Vector3();
+    const _forwardVec = new THREE.Vector3();
+    const _rightVec = new THREE.Vector3();
+    const _horizDir = new THREE.Vector3();
+    const _desiredMoveVel = new THREE.Vector3();
+    const _moveDelta = new THREE.Vector3();
+    const _beforeMovePos = new THREE.Vector3();
+    const _actualMoveDelta = new THREE.Vector3();
+    const _lookOffset = new THREE.Vector3();
+    const _newOffset = new THREE.Vector3();
+
+    // Adaptive Resolution Scaling state to keep mobile/Android locked near 60 FPS
+    let fpsSampleFrames = 0;
+    let fpsSampleTime = 0;
+
     function stepScene(dt, doRender = true) {
       elapsedTotal += dt;
-      const prevCamPos = camera.position.clone();
+      frameTickCounter++;
+      _prevCamPos.copy(camera.position);
 
-      for (const mixer of activeMixers) {
-        mixer.update(dt);
+      if (!doRender || navigator.webdriver) {
+        // Deterministic full update for automated tests & stepBy()
+        for (let i = 0; i < activeMixers.length; i++) {
+          activeMixers[i].update(dt);
+        }
+      } else {
+        // Smart Skeletal Animation Update:
+        // Update moving/attacking/fading pieces every frame (60Hz), and stagger static Idle statues
+        // (2 pieces per frame) so 30 out of 32 bone skeletons don't burn CPU & vertex skinning every frame!
+        const pieceCount = activePiecesList.length;
+        for (let i = 0; i < pieceCount; i++) {
+          const p = activePiecesList[i];
+          if (!p || !p.mixer) continue;
+          if (!p.isIdleState || elapsedTotal < (p.fadeUntilTime || 0)) {
+            p.mixer.update(dt);
+          }
+        }
+        if (pieceCount > 0 && !isAnimatingMove) {
+          const batchSize = isMobileDevice ? 1 : 2;
+          for (let b = 0; b < batchSize; b++) {
+            const p = activePiecesList[idleMixerCursor % pieceCount];
+            idleMixerCursor = (idleMixerCursor + 1) % pieceCount;
+            if (p && p.mixer && p.isIdleState && elapsedTotal >= (p.fadeUntilTime || 0)) {
+              p.mixer.update(dt * Math.min(12, Math.round(pieceCount / batchSize)));
+            }
+          }
+        }
       }
 
       // Feature 3c: Advance pre-move piece selection & valid-squares highlight beat before executing scripted move
@@ -5080,33 +5153,32 @@ export function initWizardChess() {
       }
 
       // Feature 4: Video-game style WASD + R/F camera translation AND Arrow-key camera rotation
-      // with separate UI-configurable Move Speed & Rot Speed (both default 10%) and smooth ease-in / ease-out velocity damping
       if (!isAnimatingMove) {
         const moveSpeedScale = cameraKeySpeedPct / 100;
         const rotSpeedScale = cameraRotSpeedPct / 100;
-        const maxMoveSpeed = 3.2 * moveSpeedScale; // 0.32 m/s at default 10%
-        const maxVertSpeed = 2.6 * moveSpeedScale; // 0.26 m/s at default 10%
-        const maxRotSpeed = 1.2 * rotSpeedScale;   // 0.12 rad/s at default 10%
+        const maxMoveSpeed = 3.2 * moveSpeedScale;
+        const maxVertSpeed = 2.6 * moveSpeedScale;
+        const maxRotSpeed = 1.2 * rotSpeedScale;
 
-        const forward = new THREE.Vector3().subVectors(orbitControls.target, camera.position);
-        forward.y = 0;
-        if (forward.lengthSq() < 1e-6) {
-          camera.getWorldDirection(forward);
-          forward.y = 0;
+        _forwardVec.subVectors(orbitControls.target, camera.position);
+        _forwardVec.y = 0;
+        if (_forwardVec.lengthSq() < 1e-6) {
+          camera.getWorldDirection(_forwardVec);
+          _forwardVec.y = 0;
         }
-        forward.normalize();
-        const right = new THREE.Vector3(-forward.z, 0, forward.x).normalize();
+        _forwardVec.normalize();
+        _rightVec.set(-_forwardVec.z, 0, _forwardVec.x).normalize();
 
-        const horizDir = new THREE.Vector3(0, 0, 0);
-        if (heldCameraKeys.has('KeyW')) horizDir.add(forward);
-        if (heldCameraKeys.has('KeyS')) horizDir.sub(forward);
-        if (heldCameraKeys.has('KeyD')) horizDir.add(right);
-        if (heldCameraKeys.has('KeyA')) horizDir.sub(right);
-        if (horizDir.lengthSq() > 1e-6) horizDir.normalize();
+        _horizDir.set(0, 0, 0);
+        if (heldCameraKeys.has('KeyW')) _horizDir.add(_forwardVec);
+        if (heldCameraKeys.has('KeyS')) _horizDir.sub(_forwardVec);
+        if (heldCameraKeys.has('KeyD')) _horizDir.add(_rightVec);
+        if (heldCameraKeys.has('KeyA')) _horizDir.sub(_rightVec);
+        if (_horizDir.lengthSq() > 1e-6) _horizDir.normalize();
 
-        const desiredMoveVel = horizDir.multiplyScalar(maxMoveSpeed);
-        if (heldCameraKeys.has('KeyR')) desiredMoveVel.y += maxVertSpeed;
-        if (heldCameraKeys.has('KeyF')) desiredMoveVel.y -= maxVertSpeed;
+        _desiredMoveVel.copy(_horizDir).multiplyScalar(maxMoveSpeed);
+        if (heldCameraKeys.has('KeyR')) _desiredMoveVel.y += maxVertSpeed;
+        if (heldCameraKeys.has('KeyF')) _desiredMoveVel.y -= maxVertSpeed;
 
         let desiredYawVel = 0;
         let desiredPitchVel = 0;
@@ -5115,13 +5187,12 @@ export function initWizardChess() {
         if (heldCameraKeys.has('ArrowUp')) desiredPitchVel += maxRotSpeed;
         if (heldCameraKeys.has('ArrowDown')) desiredPitchVel -= maxRotSpeed;
 
-        // Smooth ease-in when keys are pressed and smooth ease-out when keys are released
         const easeAlpha = 1 - Math.exp(-Math.max(0.001, dt) * 7.5);
-        keyMoveVelocity.lerp(desiredMoveVel, easeAlpha);
+        keyMoveVelocity.lerp(_desiredMoveVel, easeAlpha);
         keyRotVelocity.yaw += (desiredYawVel - keyRotVelocity.yaw) * easeAlpha;
         keyRotVelocity.pitch += (desiredPitchVel - keyRotVelocity.pitch) * easeAlpha;
 
-        if (keyMoveVelocity.lengthSq() < 1e-8 && desiredMoveVel.lengthSq() === 0) {
+        if (keyMoveVelocity.lengthSq() < 1e-8 && _desiredMoveVel.lengthSq() === 0) {
           keyMoveVelocity.set(0, 0, 0);
         }
         if (Math.abs(keyRotVelocity.yaw) < 1e-5 && desiredYawVel === 0) keyRotVelocity.yaw = 0;
@@ -5134,18 +5205,18 @@ export function initWizardChess() {
           activeCamTransition = null;
 
           if (hasActiveMove) {
-            const moveDelta = keyMoveVelocity.clone().multiplyScalar(dt);
-            const beforeMovePos = camera.position.clone();
-            camera.position.add(moveDelta);
-            enforceCathedralBoundsAndSolidColumns(beforeMovePos, camera.position, orbitControls.target);
-            const actualMoveDelta = camera.position.clone().sub(beforeMovePos);
-            orbitControls.target.add(actualMoveDelta);
+            _moveDelta.copy(keyMoveVelocity).multiplyScalar(dt);
+            _beforeMovePos.copy(camera.position);
+            camera.position.add(_moveDelta);
+            enforceCathedralBoundsAndSolidColumns(_beforeMovePos, camera.position, orbitControls.target);
+            _actualMoveDelta.subVectors(camera.position, _beforeMovePos);
+            orbitControls.target.add(_actualMoveDelta);
           }
 
           if (hasActiveRot) {
-            const lookOffset = new THREE.Vector3().subVectors(orbitControls.target, camera.position);
-            const dist = Math.max(0.5, lookOffset.length());
-            const dir = lookOffset.normalize();
+            _lookOffset.subVectors(orbitControls.target, camera.position);
+            const dist = Math.max(0.5, _lookOffset.length());
+            const dir = _lookOffset.normalize();
             let yaw = Math.atan2(dir.x, dir.z);
             let pitch = Math.asin(Math.max(-0.98, Math.min(0.98, dir.y)));
 
@@ -5153,12 +5224,12 @@ export function initWizardChess() {
             pitch = Math.max(-1.35, Math.min(1.35, pitch + keyRotVelocity.pitch * dt));
 
             const cosP = Math.cos(pitch);
-            const newOffset = new THREE.Vector3(
+            _newOffset.set(
               Math.sin(yaw) * cosP * dist,
               Math.sin(pitch) * dist,
               Math.cos(yaw) * cosP * dist
             );
-            orbitControls.target.copy(camera.position).add(newOffset);
+            orbitControls.target.copy(camera.position).add(_newOffset);
           }
 
           if (heldCameraKeys.size > 0) {
@@ -5175,7 +5246,7 @@ export function initWizardChess() {
         const ease = easeInOutCubic(u);
         camera.position.lerpVectors(activeCamTransition.startPos, activeCamTransition.endPos, ease);
         orbitControls.target.lerpVectors(activeCamTransition.startTarget, activeCamTransition.endTarget, ease);
-        enforceCathedralBoundsAndSolidColumns(prevCamPos, camera.position, orbitControls.target);
+        enforceCathedralBoundsAndSolidColumns(_prevCamPos, camera.position, orbitControls.target);
         camera.lookAt(orbitControls.target);
         if (u >= 1) {
           activeCamTransition = null;
@@ -5183,10 +5254,10 @@ export function initWizardChess() {
         }
       } else if (orbitControls.enabled && !isAnimatingMove) {
         orbitControls.update();
-        enforceCathedralBoundsAndSolidColumns(prevCamPos, camera.position, orbitControls.target);
+        enforceCathedralBoundsAndSolidColumns(_prevCamPos, camera.position, orbitControls.target);
         camera.lookAt(orbitControls.target);
       } else if (isAnimatingMove) {
-        enforceCathedralBoundsAndSolidColumns(prevCamPos, camera.position, orbitControls.target);
+        enforceCathedralBoundsAndSolidColumns(_prevCamPos, camera.position, orbitControls.target);
         camera.lookAt(orbitControls.target);
       }
 
@@ -5265,7 +5336,9 @@ export function initWizardChess() {
       }
 
       if (isAnimatingMove || activeMoveTweens.length > 0 || shatterDebris.length > 0 || checkmateState.active) {
-        renderer.shadowMap.needsUpdate = true;
+        if (!isMobileDevice || frameTickCounter % 2 === 0) {
+          renderer.shadowMap.needsUpdate = true;
+        }
       }
 
       if (doRender) {
@@ -5283,7 +5356,27 @@ export function initWizardChess() {
         requestAnimationFrame(animate);
       }
       if (manualStepMode) return;
-      const dt = Math.min(clock.getDelta(), 0.1);
+      const rawDt = clock.getDelta();
+      const dt = Math.min(rawDt, 0.1);
+
+      // Adaptive dynamic resolution scaler: keeps framerate smooth on mobile/Android WebViews
+      if (!isAutomatedTest && !isSoftwareGl && rawDt > 0 && rawDt < 0.25) {
+        fpsSampleFrames++;
+        fpsSampleTime += rawDt;
+        if (fpsSampleTime >= 1.0) {
+          const avgFps = fpsSampleFrames / fpsSampleTime;
+          fpsSampleFrames = 0;
+          fpsSampleTime = 0;
+          if (avgFps < 42 && currentDynamicDpr > 0.85) {
+            currentDynamicDpr = Math.max(0.85, Number((currentDynamicDpr - 0.12).toFixed(2)));
+            renderer.setPixelRatio(currentDynamicDpr);
+          } else if (avgFps > 57 && currentDynamicDpr < maxTargetDpr) {
+            currentDynamicDpr = Math.min(maxTargetDpr, Number((currentDynamicDpr + 0.08).toFixed(2)));
+            renderer.setPixelRatio(currentDynamicDpr);
+          }
+        }
+      }
+
       stepScene(dt || 0.016, true);
     }
 

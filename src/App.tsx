@@ -28,6 +28,66 @@ function formatStopwatch(totalSeconds: number): string {
   return `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
 }
 
+function ChronometerStopwatch({
+  running,
+  resetSeed,
+}: {
+  running: boolean;
+  resetSeed: number;
+}) {
+  const [elapsedSeconds, setElapsedSeconds] = useState<number>(0);
+
+  useEffect(() => {
+    setElapsedSeconds(0);
+  }, [resetSeed]);
+
+  useEffect(() => {
+    if (!running) return;
+    const timer = window.setInterval(() => {
+      setElapsedSeconds((prev) => prev + 1);
+    }, 1000);
+    return () => window.clearInterval(timer);
+  }, [running]);
+
+  const secondHandDeg = (elapsedSeconds % 60) * 6;
+  const minuteHandDeg = ((elapsedSeconds / 60) % 60) * 6;
+
+  return (
+    <div
+      className="chronometer-3d-housing"
+      id="match-stopwatch-3d"
+      aria-label="Match Elapsed Stopwatch"
+    >
+      <div className="chronometer-3d-dial" aria-hidden="true">
+        <div className="chronometer-crown-knob" />
+        <div className="chronometer-bezel">
+          <span className="chrono-tick tick-12" />
+          <span className="chrono-tick tick-3" />
+          <span className="chrono-tick tick-6" />
+          <span className="chrono-tick tick-9" />
+          <div
+            className="chrono-hand minute-hand"
+            style={{ transform: `translateX(-50%) rotate(${minuteHandDeg}deg)` }}
+          />
+          <div
+            className="chrono-hand second-hand"
+            style={{ transform: `translateX(-50%) rotate(${secondHandDeg}deg)` }}
+          />
+          <div className="chrono-center-jewel" />
+          <div className="chrono-glass-sheen" />
+        </div>
+      </div>
+
+      <div className="chronometer-readout">
+        <span className="chronometer-label">TIME</span>
+        <span className="chronometer-digits" id="stopwatch-digits">
+          {formatStopwatch(elapsedSeconds)}
+        </span>
+      </div>
+    </div>
+  );
+}
+
 async function tryLockLandscape(): Promise<boolean> {
   try {
     const scr = window.screen as Screen & {
@@ -103,8 +163,8 @@ export default function App() {
     soundAndHaptics.getSettings()
   );
 
-  // Single 3D Stopwatch Elapsed Match Time Counter (counts up 00:00 -> 00:01 -> ...)
-  const [elapsedSeconds, setElapsedSeconds] = useState<number>(0);
+  // Seed counter to reset the isolated 3D Stopwatch without re-rendering App every second
+  const [stopwatchResetSeed, setStopwatchResetSeed] = useState<number>(0);
 
   // Automatic 90-degree Landscape Rotation whenever device viewport is Portrait (height > width)
   const [forceRotate90, setForceRotate90] = useState<boolean>(() =>
@@ -183,18 +243,6 @@ export default function App() {
     };
   }, []);
 
-  // Single 3D Stopwatch 1-second count-up timer
-  useEffect(() => {
-    if (!matchStarted || pauseModalOpen || Boolean(activeAd) || gameOver) {
-      return;
-    }
-    const timer = window.setInterval(() => {
-      setElapsedSeconds((prev) => prev + 1);
-    }, 1000);
-
-    return () => window.clearInterval(timer);
-  }, [matchStarted, pauseModalOpen, activeAd, gameOver]);
-
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape' && pauseModalOpen) {
@@ -206,7 +254,7 @@ export default function App() {
   }, [pauseModalOpen, matchStarted]);
 
   const resetStopwatch = () => {
-    setElapsedSeconds(0);
+    setStopwatchResetSeed((prev) => prev + 1);
     setGameOver(false);
   };
 
@@ -400,9 +448,8 @@ export default function App() {
     getEngineAPI()?.setGameMode?.(mode);
   };
 
-  // Angles for the 3D Gold Chronometer Stopwatch hands
-  const secondHandDeg = (elapsedSeconds % 60) * 6;
-  const minuteHandDeg = ((elapsedSeconds / 60) % 60) * 6;
+  const isStopwatchRunning =
+    matchStarted && !pauseModalOpen && !activeAd && !gameOver;
 
   return (
     <div
@@ -621,39 +668,8 @@ export default function App() {
           </div>
         </div>
 
-        {/* Center Top: Premium 3D Sculpted Gold Chronometer Stopwatch (Total Match Time Counter) */}
-        <div
-          className="chronometer-3d-housing"
-          id="match-stopwatch-3d"
-          aria-label="Match Elapsed Stopwatch"
-        >
-          <div className="chronometer-3d-dial" aria-hidden="true">
-            <div className="chronometer-crown-knob" />
-            <div className="chronometer-bezel">
-              <span className="chrono-tick tick-12" />
-              <span className="chrono-tick tick-3" />
-              <span className="chrono-tick tick-6" />
-              <span className="chrono-tick tick-9" />
-              <div
-                className="chrono-hand minute-hand"
-                style={{ transform: `translateX(-50%) rotate(${minuteHandDeg}deg)` }}
-              />
-              <div
-                className="chrono-hand second-hand"
-                style={{ transform: `translateX(-50%) rotate(${secondHandDeg}deg)` }}
-              />
-              <div className="chrono-center-jewel" />
-              <div className="chrono-glass-sheen" />
-            </div>
-          </div>
-
-          <div className="chronometer-readout">
-            <span className="chronometer-label">TIME</span>
-            <span className="chronometer-digits" id="stopwatch-digits">
-              {formatStopwatch(elapsedSeconds)}
-            </span>
-          </div>
-        </div>
+        {/* Center Top: Premium 3D Sculpted Gold Chronometer Stopwatch (Isolated 1s tick) */}
+        <ChronometerStopwatch running={isStopwatchRunning} resetSeed={stopwatchResetSeed} />
 
         {/* Right Top Pause & Settings Buttons */}
         <div className="hud-group" id="hud-right">

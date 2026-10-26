@@ -88,6 +88,8 @@ public class MainActivity extends AppCompatActivity {
 
         webView = new WebView(this);
         webView.setBackgroundColor(Color.parseColor("#080a0f"));
+        webView.setLayerType(View.LAYER_TYPE_HARDWARE, null);
+        webView.setOverScrollMode(View.OVER_SCROLL_NEVER);
         rootLayout.addView(webView, new FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.MATCH_PARENT
@@ -455,6 +457,30 @@ public class MainActivity extends AppCompatActivity {
             }
         } catch (Throwable ignored) {
         }
+    }
+
+    @Override
+    protected void onResume() {
+        super.onResume();
+        if (webView != null) {
+            webView.onResume();
+            webView.resumeTimers();
+        }
+        if (admobBannerView != null) {
+            admobBannerView.resume();
+        }
+        hideSystemUI();
+    }
+
+    @Override
+    protected void onPause() {
+        if (admobBannerView != null) {
+            admobBannerView.pause();
+        }
+        if (webView != null) {
+            webView.onPause();
+        }
+        super.onPause();
     }
 
     @Override
