@@ -70,22 +70,15 @@ export function initWizardChess() {
     })();
 
     const initialVp = getLandscapeViewport();
-    const maxTargetDpr = isSoftwareGl
-      ? 1.0
-      : isMobileDevice
-      ? Math.min(window.devicePixelRatio || 1, 1.25)
-      : Math.min(window.devicePixelRatio || 1, 1.65);
-    let currentDynamicDpr = maxTargetDpr;
-
     const renderer = new THREE.WebGLRenderer({
-      antialias: !isSoftwareGl && !isMobileDevice,
+      antialias: true,
       powerPreference: 'high-performance',
       preserveDrawingBuffer: isAutomatedTest
     });
     renderer.setSize(initialVp.width, initialVp.height);
-    renderer.setPixelRatio(currentDynamicDpr);
+    renderer.setPixelRatio(isSoftwareGl ? 1.0 : Math.min(window.devicePixelRatio || 1, 2));
     renderer.shadowMap.enabled = !isSoftwareGl;
-    renderer.shadowMap.type = isMobileDevice ? THREE.PCFShadowMap : THREE.PCFSoftShadowMap;
+    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     renderer.shadowMap.autoUpdate = false;
     renderer.shadowMap.needsUpdate = true;
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
@@ -250,16 +243,15 @@ export function initWizardChess() {
       return origHandleMouseMovePan(event);
     };
 
-    // Dramatic Chiaroscuro Cathedral & Board Lighting (consolidated for high-FPS mobile & desktop PBR)
-    const hemiLight = new THREE.HemisphereLight(0xd8ccb8, 0x281e15, 0.78);
+    // Dramatic Chiaroscuro Cathedral & Board Lighting (grazing raking key + warm lower fill so mortar joints catch deep shadow)
+    const hemiLight = new THREE.HemisphereLight(0xd8ccb8, 0x281e15, 0.72);
     scene.add(hemiLight);
 
-    const keyLight = new THREE.DirectionalLight(0xfff0d6, 2.68);
+    const keyLight = new THREE.DirectionalLight(0xfff0d6, 2.55);
     keyLight.position.set(3.8, 8.5, 4.2);
     keyLight.castShadow = !isSoftwareGl;
-    const shadowMapDim = isMobileDevice ? 1024 : 1536;
-    keyLight.shadow.mapSize.width = shadowMapDim;
-    keyLight.shadow.mapSize.height = shadowMapDim;
+    keyLight.shadow.mapSize.width = 2048;
+    keyLight.shadow.mapSize.height = 2048;
     keyLight.shadow.camera.near = 1.5;
     keyLight.shadow.camera.far = 18.0;
     const d = 3.0;
@@ -271,14 +263,18 @@ export function initWizardChess() {
     scene.add(keyLight);
 
     // Subtle directional rim/fill (kept low so opposing directional lights never cancel normal-map mortar shadows)
-    const rimLight = new THREE.DirectionalLight(0xdce2f0, 0.92);
+    const rimLight = new THREE.DirectionalLight(0xdce2f0, 0.85);
     rimLight.position.set(-4.5, 6.0, -6.5);
     scene.add(rimLight);
 
-    // Twin Flickering Brazier Point Lights (centered at x = +/-3.65, z = 0.00; flanking column bounce is evaluated in shader)
+    const southFillLight = new THREE.DirectionalLight(0xf5e0c4, 0.65);
+    southFillLight.position.set(0.0, 4.8, 8.5);
+    scene.add(southFillLight);
+
+    // Twin Flickering Brazier Point Lights (centered at x = +/-3.65, z = 0.00, flanked by columns at z = +/-2.50)
     const brazierCoords = [
-      { pos: [-3.65, 1.08, 0.00], baseIntensity: 4.35, dist: 18.0 },
-      { pos: [3.65, 1.08, 0.00], baseIntensity: 4.35, dist: 18.0 }
+      { pos: [-3.65, 1.08, 0.00], baseIntensity: 4.10, dist: 16.5 },
+      { pos: [3.65, 1.08, 0.00], baseIntensity: 4.10, dist: 16.5 }
     ];
     const brazierLights = [];
     for (const cfg of brazierCoords) {
@@ -666,11 +662,20 @@ export function initWizardChess() {
           varying vec3 vWorldNormal;
           varying float vHeightNorm;
 
-          // Ultra-fast GPU harmonic flame turbulence (replaces 16-hash trilinear noise per fragment for 60 FPS mobile rendering)
-          float fastFlameTurbulence(vec3 p) {
-            float w1 = sin(p.x * 1.7 + sin(p.y * 1.3 + p.z * 1.5)) * 0.5 + 0.5;
-            float w2 = cos(p.z * 2.1 - sin(p.y * 1.9 - p.x * 1.4)) * 0.5 + 0.5;
-            return mix(w1, w2, 0.5);
+          float hash3(vec3 p) {
+            return fract(sin(dot(p, vec3(12.9898, 78.233, 37.719))) * 43758.5453);
+          }
+
+          float noise3(vec3 x) {
+            vec3 i = floor(x);
+            vec3 f = fract(x);
+            f = f * f * (3.0 - 2.0 * f);
+            return mix(
+              mix(mix(hash3(i + vec3(0,0,0)), hash3(i + vec3(1,0,0)), f.x),
+                  mix(hash3(i + vec3(0,1,0)), hash3(i + vec3(1,1,0)), f.x), f.y),
+              mix(mix(hash3(i + vec3(0,0,1)), hash3(i + vec3(1,0,1)), f.x),
+                  mix(hash3(i + vec3(0,1,1)), hash3(i + vec3(1,1,1)), f.x), f.y), f.z
+            );
           }
 
           void main() {
@@ -680,11 +685,11 @@ export function initWizardChess() {
 
             // Real-time port of Cycles LayerWeight.Facing^2.4 gaseous feathering
             float facing = clamp(abs(dot(N, V)), 0.0, 1.0);
-            float powFacing = facing * facing;
+            float powFacing = pow(facing, 1.9);
 
             // Fast upward-convecting 3D flame turbulence that actively carves the flame tips
-            float n1 = fastFlameTurbulence(vec3(vLocalPos.x * 5.4, vLocalPos.y * 4.8 - uTime * 6.8, vLocalPos.z * 5.4 + uLayerSeed));
-            float n2 = fastFlameTurbulence(vec3(vLocalPos.x * 9.8 + 1.9, vLocalPos.y * 8.2 - uTime * 10.2, vLocalPos.z * 9.8 - uLayerSeed));
+            float n1 = noise3(vec3(vLocalPos.x * 5.4, vLocalPos.y * 4.8 - uTime * 6.8, vLocalPos.z * 5.4 + uLayerSeed));
+            float n2 = noise3(vec3(vLocalPos.x * 9.8 + 1.9, vLocalPos.y * 8.2 - uTime * 10.2, vLocalPos.z * 9.8 - uLayerSeed));
             float shimmer = mix(n1, n2, 0.45);
 
             // Dynamic tip erosion so flame tongues visibly lick up and recede
@@ -722,11 +727,9 @@ export function initWizardChess() {
         vertexShader: `
           varying vec3 vLocalPos;
           varying vec3 vWorldNormal;
-          varying float vStaticCrack;
           void main() {
             vLocalPos = position;
             vWorldNormal = normalize(mat3(modelMatrix) * normal);
-            vStaticCrack = fract(sin(dot(position * 18.0, vec3(12.9898, 78.233, 37.719))) * 43758.5453);
             gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
           }
         `,
@@ -734,17 +737,31 @@ export function initWizardChess() {
           uniform float uTime;
           varying vec3 vLocalPos;
           varying vec3 vWorldNormal;
-          varying float vStaticCrack;
+
+          float hash3(vec3 p) {
+            return fract(sin(dot(p, vec3(127.1, 311.7, 74.7))) * 43758.5453);
+          }
+
+          float noise3(vec3 x) {
+            vec3 i = floor(x);
+            vec3 f = fract(x);
+            f = f * f * (3.0 - 2.0 * f);
+            return mix(
+              mix(mix(hash3(i + vec3(0,0,0)), hash3(i + vec3(1,0,0)), f.x),
+                  mix(hash3(i + vec3(0,1,0)), hash3(i + vec3(1,1,0)), f.x), f.y),
+              mix(mix(hash3(i + vec3(0,0,1)), hash3(i + vec3(1,0,1)), f.x),
+                  mix(hash3(i + vec3(0,1,1)), hash3(i + vec3(1,1,1)), f.x), f.y), f.z
+            );
+          }
 
           void main() {
-            // Fast harmonic ember crackle (zero 8-corner trilinear hash loops per pixel)
-            float nCrack = sin(vLocalPos.x * 22.0 + cos(vLocalPos.z * 24.0 + vLocalPos.y * 18.0)) * 0.5 + 0.5;
-            float nFine = cos(vLocalPos.x * 38.0 - sin(vLocalPos.z * 36.0 + uTime * 1.4)) * 0.5 + 0.5;
+            float nCrack = noise3(vLocalPos * 28.0);
+            float nFine = noise3(vLocalPos * 62.0 + vec3(0.0, uTime * 0.4, 0.0));
             float pulse = 0.88 + 0.12 * sin(uTime * 2.3 + vLocalPos.x * 4.0 + vLocalPos.z * 4.0);
 
             // Lower coal cone (y < 0.59) vs upper charred logs (y >= 0.59)
             float isCoalBed = 1.0 - smoothstep(0.56, 0.61, vLocalPos.y);
-            float crackMask = smoothstep(0.62, 0.88, mix(nCrack, vStaticCrack, 0.35) * 0.7 + nFine * 0.3);
+            float crackMask = smoothstep(0.62, 0.88, nCrack * 0.7 + nFine * 0.3);
             float underGlow = clamp(-vWorldNormal.y * 0.45 + 0.35, 0.0, 1.0) * smoothstep(0.72, 0.56, vLocalPos.y);
 
             vec3 charBark = vec3(0.035, 0.025, 0.020);
@@ -805,7 +822,28 @@ export function initWizardChess() {
 
     createBrazierWarmGlowHalos();
 
-    // Window & end-wall grazing light is evaluated analytically at zero extra BRDF cost inside applyCathedralStoneRealismShader
+    // Side-Aisle Window Grazing Lights (raking across outer stone walls & chess pieces so normal-mapped ashlar stone pops)
+    const windowLightPositions = [
+      [-6.8, 4.8, -5.0],
+      [-6.8, 4.8, 5.0],
+      [6.8, 4.8, -5.0],
+      [6.8, 4.8, 5.0]
+    ];
+    for (const pos of windowLightPositions) {
+      const winLight = new THREE.PointLight(0xdbe4f3, 1.35, 13.5, 1.75);
+      winLight.position.set(pos[0], pos[1], pos[2]);
+      scene.add(winLight);
+    }
+
+    // North Rose Window & South Narthex Portal Grazing Lights (raking across end walls & vaulting)
+    const northWinLight = new THREE.PointLight(0xe4ecf7, 1.9, 15.0, 1.65);
+    northWinLight.position.set(0, 5.8, -10.8);
+    scene.add(northWinLight);
+
+    const southWinLight = new THREE.PointLight(0xffddb0, 1.9, 15.0, 1.65);
+    southWinLight.position.set(0, 5.2, 9.8);
+    scene.add(southWinLight);
+
     // Impact Flash Light (kept visible=true with intensity=0 when idle so Three.js never recompiles shaders mid-attack!)
     const impactFlashLight = new THREE.PointLight(0xffb74d, 0, 6.0, 1.5);
     impactFlashLight.visible = true;
@@ -816,28 +854,32 @@ export function initWizardChess() {
     // =========================================================================
     const whitePieceMat = new THREE.MeshStandardMaterial({
       color: 0xe6dfd0,
-      roughness: 0.34,
-      metalness: 0.06
+      roughness: 0.32,
+      metalness: 0.08,
+      envMapIntensity: 1.45
     });
 
     const blackPieceMat = new THREE.MeshStandardMaterial({
       color: 0x222630,
-      roughness: 0.28,
-      metalness: 0.24
+      roughness: 0.25,
+      metalness: 0.28,
+      envMapIntensity: 1.65
     });
 
     const goldTrimMat = new THREE.MeshStandardMaterial({
       color: 0xd4af37,
-      roughness: 0.26,
-      metalness: 0.86
+      roughness: 0.24,
+      metalness: 0.88,
+      envMapIntensity: 1.85
     });
 
     const forgedSteelMat = new THREE.MeshStandardMaterial({
       color: 0xdce4ee,
-      roughness: 0.20,
-      metalness: 0.88,
+      roughness: 0.18,
+      metalness: 0.90,
       emissive: 0x222832,
-      emissiveIntensity: 0.25
+      emissiveIntensity: 0.25,
+      envMapIntensity: 1.90
     });
 
     // =========================================================================
@@ -1223,7 +1265,7 @@ export function initWizardChess() {
       const charredEmberLogsShader = createCharredEmberLogsShader();
 
       // Load Cathedral + All 6 Chess Piece Models in PARALLEL for 3x faster startup!
-      const maxAniso = Math.min(renderer.capabilities.getMaxAnisotropy() || 4, isMobileDevice ? 4 : 8);
+      const maxAniso = Math.min(renderer.capabilities.getMaxAnisotropy() || 8, 8);
 
       const cathedralPromise = loadGltfModel('option8_cathedral')
         .then((gltf) => {
@@ -5078,11 +5120,9 @@ export function initWizardChess() {
     };
 
     // =========================================================================
-    // Main Animation Loop (Zero-GC Preallocated Vectors & Smart Skeletal Mixer Throttling)
+    // Main Animation Loop (Zero-GC Preallocated Vectors & Full 60Hz Skeletal Precision)
     // =========================================================================
     let elapsedTotal = 0;
-    let frameTickCounter = 0;
-    let idleMixerCursor = 0;
     const _prevCamPos = new THREE.Vector3();
     const _forwardVec = new THREE.Vector3();
     const _rightVec = new THREE.Vector3();
@@ -5094,42 +5134,12 @@ export function initWizardChess() {
     const _lookOffset = new THREE.Vector3();
     const _newOffset = new THREE.Vector3();
 
-    // Adaptive Resolution Scaling state to keep mobile/Android locked near 60 FPS
-    let fpsSampleFrames = 0;
-    let fpsSampleTime = 0;
-
     function stepScene(dt, doRender = true) {
       elapsedTotal += dt;
-      frameTickCounter++;
       _prevCamPos.copy(camera.position);
 
-      if (!doRender || navigator.webdriver) {
-        // Deterministic full update for automated tests & stepBy()
-        for (let i = 0; i < activeMixers.length; i++) {
-          activeMixers[i].update(dt);
-        }
-      } else {
-        // Smart Skeletal Animation Update:
-        // Update moving/attacking/fading pieces every frame (60Hz), and stagger static Idle statues
-        // (2 pieces per frame) so 30 out of 32 bone skeletons don't burn CPU & vertex skinning every frame!
-        const pieceCount = activePiecesList.length;
-        for (let i = 0; i < pieceCount; i++) {
-          const p = activePiecesList[i];
-          if (!p || !p.mixer) continue;
-          if (!p.isIdleState || elapsedTotal < (p.fadeUntilTime || 0)) {
-            p.mixer.update(dt);
-          }
-        }
-        if (pieceCount > 0 && !isAnimatingMove) {
-          const batchSize = isMobileDevice ? 1 : 2;
-          for (let b = 0; b < batchSize; b++) {
-            const p = activePiecesList[idleMixerCursor % pieceCount];
-            idleMixerCursor = (idleMixerCursor + 1) % pieceCount;
-            if (p && p.mixer && p.isIdleState && elapsedTotal >= (p.fadeUntilTime || 0)) {
-              p.mixer.update(dt * Math.min(12, Math.round(pieceCount / batchSize)));
-            }
-          }
-        }
+      for (let i = 0; i < activeMixers.length; i++) {
+        activeMixers[i].update(dt);
       }
 
       // Feature 3c: Advance pre-move piece selection & valid-squares highlight beat before executing scripted move
@@ -5336,9 +5346,7 @@ export function initWizardChess() {
       }
 
       if (isAnimatingMove || activeMoveTweens.length > 0 || shatterDebris.length > 0 || checkmateState.active) {
-        if (!isMobileDevice || frameTickCounter % 2 === 0) {
-          renderer.shadowMap.needsUpdate = true;
-        }
+        renderer.shadowMap.needsUpdate = true;
       }
 
       if (doRender) {
@@ -5356,27 +5364,7 @@ export function initWizardChess() {
         requestAnimationFrame(animate);
       }
       if (manualStepMode) return;
-      const rawDt = clock.getDelta();
-      const dt = Math.min(rawDt, 0.1);
-
-      // Adaptive dynamic resolution scaler: keeps framerate smooth on mobile/Android WebViews
-      if (!isAutomatedTest && !isSoftwareGl && rawDt > 0 && rawDt < 0.25) {
-        fpsSampleFrames++;
-        fpsSampleTime += rawDt;
-        if (fpsSampleTime >= 1.0) {
-          const avgFps = fpsSampleFrames / fpsSampleTime;
-          fpsSampleFrames = 0;
-          fpsSampleTime = 0;
-          if (avgFps < 42 && currentDynamicDpr > 0.85) {
-            currentDynamicDpr = Math.max(0.85, Number((currentDynamicDpr - 0.12).toFixed(2)));
-            renderer.setPixelRatio(currentDynamicDpr);
-          } else if (avgFps > 57 && currentDynamicDpr < maxTargetDpr) {
-            currentDynamicDpr = Math.min(maxTargetDpr, Number((currentDynamicDpr + 0.08).toFixed(2)));
-            renderer.setPixelRatio(currentDynamicDpr);
-          }
-        }
-      }
-
+      const dt = Math.min(clock.getDelta(), 0.1);
       stepScene(dt || 0.016, true);
     }
 
