@@ -255,30 +255,29 @@ html, body, #root {
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.5);
 }
 
-/* Bottom HUD — Android Game Dock & Touch Guide */
+/* Bottom HUD — Left Side & Right Side Split Control Docks (Center clear for Banner Ad) */
 #hud-bottom {
   position: fixed;
-  bottom: 16px;
-  left: 20px;
-  right: 20px;
+  bottom: 14px;
+  left: 16px;
+  right: 16px;
   z-index: 10;
   display: flex;
-  align-items: center;
+  align-items: flex-end;
   justify-content: space-between;
   pointer-events: none;
   gap: 12px;
-  flex-wrap: wrap;
 }
 
 .android-bottom-bar {
   pointer-events: auto;
   display: flex;
   align-items: center;
-  gap: 14px;
-  background: linear-gradient(180deg, rgba(24, 29, 42, 0.95) 0%, rgba(11, 14, 22, 0.98) 100%);
-  border: 1px solid rgba(212, 175, 55, 0.42);
-  padding: 6px 14px 6px 8px;
-  border-radius: 14px;
+  gap: 8px;
+  background: linear-gradient(180deg, rgba(24, 29, 42, 0.94) 0%, rgba(11, 14, 22, 0.97) 100%);
+  border: 1px solid rgba(212, 175, 55, 0.44);
+  padding: 6px 8px;
+  border-radius: 12px;
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.14),
     0 4px 0 #06080d,
@@ -288,7 +287,7 @@ html, body, #root {
 .android-quick-actions {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 7px;
 }
 
 .compact-3d-btn {
@@ -809,35 +808,43 @@ body.cinematic-ui-hidden #hud-bottom {
     white-space: nowrap;
   }
 
-  /* Optimize bottom HUD on mobile: compact 3D Undo/Hint/Flip/Camera dock with NO scrollbar */
+  /* Optimize bottom HUD on mobile: split Left Side & Right Side docks so center 468x60 Banner Ad is never covered */
   #hud-bottom {
-    bottom: 8px;
+    bottom: 10px;
     left: 10px;
     right: 10px;
-    z-index: 8;
-    justify-content: center;
+    z-index: 10;
+    justify-content: space-between;
+    align-items: flex-end;
   }
 
   .android-touch-guide {
     display: none;
   }
 
-  .android-bottom-bar {
-    padding: 5px 8px;
-    max-width: 100%;
-    overflow-x: auto;
-    scrollbar-width: none;
+  .android-bottom-bar.hud-side-dock {
+    padding: 6px;
+    border-radius: 12px;
   }
 
-  .android-quick-actions {
-    flex-wrap: nowrap;
+  .side-actions-left {
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 6px;
+  }
+
+  .side-actions-right {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: 5px;
   }
 
   .compact-3d-btn {
-    padding: 5px 9px;
+    padding: 6px 9px;
     font-size: 0.7rem;
     white-space: nowrap;
+    justify-content: center;
   }
 
   .captured-pill {

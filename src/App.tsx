@@ -216,6 +216,21 @@ export default function App() {
     };
   }, []);
 
+  const matchEndAdShownRef = useRef<boolean>(false);
+  const matchEndAdTimerRef = useRef<number | null>(null);
+
+  const scheduleMatchEndVideoAd = () => {
+    if (matchEndAdShownRef.current) return;
+    matchEndAdShownRef.current = true;
+    if (matchEndAdTimerRef.current) {
+      window.clearTimeout(matchEndAdTimerRef.current);
+    }
+    // Wait 1.8s so the 3D King topple animation completes, then show the match-end video ad
+    matchEndAdTimerRef.current = window.setTimeout(() => {
+      tryShowNativeInterstitialAd();
+    }, 1800);
+  };
+
   useEffect(() => {
     const handleStateChange = (e: Event) => {
       const custom = e as CustomEvent<{
@@ -224,7 +239,11 @@ export default function App() {
         gameMode?: ChessGameMode;
       }>;
       if (custom.detail) {
-        setGameOver(Boolean(custom.detail.gameOver));
+        const isOver = Boolean(custom.detail.gameOver);
+        setGameOver(isOver);
+        if (isOver && custom.detail.moveHistoryCount > 0) {
+          scheduleMatchEndVideoAd();
+        }
         if (custom.detail.gameMode === 'single' || custom.detail.gameMode === 'local') {
           setSelectedGameMode(custom.detail.gameMode);
         }
@@ -233,6 +252,7 @@ export default function App() {
 
     const handleCheckmate = () => {
       setGameOver(true);
+      scheduleMatchEndVideoAd();
     };
 
     window.addEventListener('wizardchess:statechange', handleStateChange);
@@ -240,6 +260,9 @@ export default function App() {
     return () => {
       window.removeEventListener('wizardchess:statechange', handleStateChange);
       window.removeEventListener('wizardchess:checkmate', handleCheckmate);
+      if (matchEndAdTimerRef.current) {
+        window.clearTimeout(matchEndAdTimerRef.current);
+      }
     };
   }, []);
 
@@ -256,6 +279,11 @@ export default function App() {
   const resetStopwatch = () => {
     setStopwatchResetSeed((prev) => prev + 1);
     setGameOver(false);
+    matchEndAdShownRef.current = false;
+    if (matchEndAdTimerRef.current) {
+      window.clearTimeout(matchEndAdTimerRef.current);
+      matchEndAdTimerRef.current = null;
+    }
   };
 
   // Show Native AdMob / Unity Rewarded Video Ad on Android; only use web overlay when testing in a desktop browser
@@ -405,7 +433,6 @@ export default function App() {
     const checkmateOverlay = document.getElementById('checkmate-overlay');
     if (checkmateOverlay) checkmateOverlay.classList.remove('visible');
 
-    tryShowNativeInterstitialAd();
     resetStopwatch();
     getEngineAPI()?.startNewMatch?.({
       mode: selectedGameMode,
@@ -715,10 +742,11 @@ export default function App() {
         </div>
       </div>
 
-      {/* BOTTOM CONTROL BAR (Visible only when match is started) */}
+      {/* BOTTOM LEFT & RIGHT SPLIT CONTROL DOCKS (Leaves bottom-center clear for Banner Ad) */}
       <div id="hud-bottom" style={{ display: matchStarted ? 'flex' : 'none' }}>
-        <div className="android-bottom-bar" id="controls-hint">
-          <div className="android-quick-actions">
+        {/* Left Side Control Dock: Undo [AD], Hint [AD], Flip */}
+        <div className="android-bottom-bar hud-side-dock hud-side-left" id="controls-hint">
+          <div className="android-quick-actions side-actions-left">
             <button
               type="button"
               className="hud-btn reward-btn compact-3d-btn"
@@ -750,9 +778,12 @@ export default function App() {
             >
               Flip
             </button>
+          </div>
+        </div>
 
-            <div className="bottom-cam-divider" aria-hidden="true"></div>
-
+        {/* Right Side Control Dock: Camera Presets (Player, Top, Side, Wide) */}
+        <div className="android-bottom-bar hud-side-dock hud-side-right" id="camera-controls-dock">
+          <div className="android-quick-actions side-actions-right">
             <button
               type="button"
               className={`hud-btn compact-3d-btn cam-pill-btn ${
@@ -799,7 +830,7 @@ export default function App() {
           </div>
         </div>
 
-        <div className="captured-pill" id="captured-tray"></div>
+        <div className="captured-pill" id="captured-tray" style={{ display: 'none' }}></div>
       </div>
 
       {/* PAUSE & SETTINGS MODAL (CLEAN 2-BUTTON SOUND & HAPTICS) */}

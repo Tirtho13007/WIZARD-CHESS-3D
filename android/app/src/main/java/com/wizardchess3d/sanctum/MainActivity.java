@@ -96,6 +96,7 @@ public class MainActivity extends AppCompatActivity {
     private String lastUnityError = "none";
 
     private String pendingShowPlacementId = null;
+    private boolean pendingShowInterstitial = false;
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
 
     private final Runnable retryAdMobRewardedRunnable = new Runnable() {
@@ -467,6 +468,9 @@ public class MainActivity extends AppCompatActivity {
                         pendingShowPlacementId = null;
                         mainHandler.removeCallbacks(fallbackTimeoutRunnable);
                         presentLoadedRewardedAd(pId);
+                    } else if (pendingShowInterstitial) {
+                        pendingShowInterstitial = false;
+                        presentMatchEndVideoOrInterstitial();
                     }
                 }
             });
@@ -517,6 +521,9 @@ public class MainActivity extends AppCompatActivity {
                         pendingShowPlacementId = null;
                         mainHandler.removeCallbacks(fallbackTimeoutRunnable);
                         presentLoadedRewardedAd(pId);
+                    } else if (pendingShowInterstitial) {
+                        pendingShowInterstitial = false;
+                        presentMatchEndVideoOrInterstitial();
                     }
                 }
             });
@@ -545,6 +552,10 @@ public class MainActivity extends AppCompatActivity {
                     Log.d(TAG, "Production AdMob Interstitial Ad Loaded (" + PROD_INTERSTITIAL_UNIT_ID + ")");
                     isLoadingInterstitial = false;
                     admobInterstitialAd = ad;
+                    if (pendingShowInterstitial) {
+                        pendingShowInterstitial = false;
+                        presentMatchEndVideoOrInterstitial();
+                    }
                 }
             });
         } catch (Throwable t) {
@@ -573,11 +584,90 @@ public class MainActivity extends AppCompatActivity {
                     Log.d(TAG, "Backup Native AdMob Interstitial Loaded");
                     isLoadingInterstitial = false;
                     admobInterstitialAd = ad;
+                    if (pendingShowInterstitial) {
+                        pendingShowInterstitial = false;
+                        presentMatchEndVideoOrInterstitial();
+                    }
                 }
             });
         } catch (Throwable t) {
             isLoadingInterstitial = false;
         }
+    }
+
+    private void presentMatchEndVideoOrInterstitial() {
+        if (isFinishing()) return;
+        // 1. Prefer Rewarded Video Ad or Interstitial Ad so match-end always plays a full-screen video/interstitial ad
+        if (admobRewardedAd != null) {
+            try {
+                RewardedAd videoAd = admobRewardedAd;
+                admobRewardedAd = null;
+                videoAd.setFullScreenContentCallback(new FullScreenContentCallback() {
+                    @Override
+                    public void onAdDismissedFullScreenContent() {
+                        loadAdMobRewardedAd();
+                    }
+
+                    @Override
+                    public void onAdFailedToShowFullScreenContent(@NonNull AdError adError) {
+                        loadAdMobRewardedAd();
+                    }
+                });
+                videoAd.show(MainActivity.this, rewardItem -> {});
+                return;
+            } catch (Throwable ignored) {
+            }
+        }
+
+        if (admobInterstitialAd != null) {
+            try {
+                InterstitialAd inter = admobInterstitialAd;
+                admobInterstitialAd = null;
+                inter.setFullScreenContentCallback(new FullScreenContentCallback() {
+                    @Override
+                    public void onAdDismissedFullScreenContent() {
+                        loadAdMobInterstitialAd();
+                    }
+
+                    @Override
+                    public void onAdFailedToShowFullScreenContent(@NonNull AdError adError) {
+                        loadAdMobInterstitialAd();
+                    }
+                });
+                inter.show(MainActivity.this);
+                return;
+            } catch (Throwable ignored) {
+            }
+        }
+
+        String unityInterToPlay = getReadyUnityRewardedPlacement();
+        if (unityInterToPlay != null) {
+            synchronized (loadedUnityPlacements) {
+                loadedUnityPlacements.remove(unityInterToPlay);
+            }
+            final String placementIdToReload = unityInterToPlay;
+            UnityAds.show(MainActivity.this, placementIdToReload, new UnityAdsShowOptions(), new IUnityAdsShowListener() {
+                @Override
+                public void onUnityAdsShowStart(String placementId) {}
+                @Override
+                public void onUnityAdsShowClick(String placementId) {}
+                @Override
+                public void onUnityAdsShowComplete(String placementId, UnityAds.UnityAdsShowCompletionState state) {
+                    loadUnityPlacement(placementIdToReload);
+                }
+                @Override
+                public void onUnityAdsShowFailure(String placementId, UnityAds.UnityAdsShowError error, String message) {
+                    loadUnityPlacement(placementIdToReload);
+                }
+            });
+            return;
+        }
+
+        // If neither is loaded yet, queue it and trigger load
+        pendingShowInterstitial = true;
+        loadAdMobRewardedAd();
+        loadAdMobInterstitialAd();
+        preloadAllUnityPlacements();
     }
 
     private void presentLoadedRewardedAd(final String unit) {
@@ -712,59 +802,7 @@ public class MainActivity extends AppCompatActivity {
 
         @JavascriptInterface
         public void showInterstitialAd() {
-            runOnUiThread(() -> {
-                if (admobInterstitialAd != null) {
-                    try {
-                        InterstitialAd inter = admobInterstitialAd;
-                        admobInterstitialAd = null;
-                        inter.setFullScreenContentCallback(new FullScreenContentCallback() {
-                            @Override
-                            public void onAdDismissedFullScreenContent() {
-                                loadAdMobInterstitialAd();
-                            }
-
-                            @Override
-                            public void onAdFailedToShowFullScreenContent(@NonNull AdError adError) {
-                                loadAdMobInterstitialAd();
-                            }
-                        });
-                        inter.show(MainActivity.this);
-                        return;
-                    } catch (Throwable ignored) {
-                    }
-                } else {
-                    loadAdMobInterstitialAd();
-                }
-
-                String unityInterToPlay = null;
-                synchronized (loadedUnityPlacements) {
-                    if (loadedUnityPlacements.contains(UNITY_INTERSTITIAL_PRIMARY)) {
-                        unityInterToPlay = UNITY_INTERSTITIAL_PRIMARY;
-                    } else if (loadedUnityPlacements.contains(UNITY_INTERSTITIAL_DEFAULT)) {
-                        unityInterToPlay = UNITY_INTERSTITIAL_DEFAULT;
-                    }
-                    if (unityInterToPlay != null) {
-                        loadedUnityPlacements.remove(unityInterToPlay);
-                    }
-                }
-                if (unityInterToPlay != null) {
-                    final String placementIdToReload = unityInterToPlay;
-                    UnityAds.show(MainActivity.this, placementIdToReload, new UnityAdsShowOptions(), new IUnityAdsShowListener() {
-                        @Override
-                        public void onUnityAdsShowStart(String placementId) {}
-                        @Override
-                        public void onUnityAdsShowClick(String placementId) {}
-                        @Override
-                        public void onUnityAdsShowComplete(String placementId, UnityAds.UnityAdsShowCompletionState state) {
-                            loadUnityPlacement(placementIdToReload);
-                        }
-                        @Override
-                        public void onUnityAdsShowFailure(String placementId, UnityAds.UnityAdsShowError error, String message) {
-                            loadUnityPlacement(placementIdToReload);
-                        }
-                    });
-                }
-            });
+            runOnUiThread(() -> presentMatchEndVideoOrInterstitial());
         }
 
         @JavascriptInterface
