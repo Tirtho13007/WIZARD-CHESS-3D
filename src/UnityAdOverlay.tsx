@@ -25,9 +25,6 @@ export const UnityAdOverlay: React.FC<UnityAdOverlayProps> = ({
     setCompleted(false);
     autoCompletedRef.current = false;
 
-    // Fire Unity Ads SDK 4.x onUnityAdsShowStart listener
-    window.onUnityAdsShowStart?.(adRequest.placementId);
-
     const interval = window.setInterval(() => {
       setSecondsLeft((prev) => {
         if (prev <= 1) {
@@ -36,11 +33,10 @@ export const UnityAdOverlay: React.FC<UnityAdOverlayProps> = ({
           if (!muted) {
             soundAndHaptics.playRewardUnlocked();
           }
-          // Automatically fire UnityAdsShowCompletionState.COMPLETED and grant reward
+          // Automatically grant the reward (Undo or Hint) when countdown reaches 0
           if (!autoCompletedRef.current) {
             autoCompletedRef.current = true;
             window.setTimeout(() => {
-              window.onUnityAdsShowComplete?.(adRequest.placementId, 'COMPLETED');
               onFinishRewarded();
             }, 350);
           }
@@ -188,7 +184,6 @@ export const UnityAdOverlay: React.FC<UnityAdOverlayProps> = ({
     if (autoCompletedRef.current) return;
     autoCompletedRef.current = true;
     soundAndHaptics.playButtonClick();
-    window.onUnityAdsShowComplete?.(adRequest.placementId, 'COMPLETED');
     onFinishRewarded();
   };
 
@@ -263,7 +258,6 @@ export const UnityAdOverlay: React.FC<UnityAdOverlayProps> = ({
               className="unity-early-skip-btn"
               onClick={() => {
                 soundAndHaptics.playButtonClick();
-                window.onUnityAdsShowComplete?.(adRequest.placementId, 'SKIPPED');
                 onDismiss();
               }}
               title="Skip Video"

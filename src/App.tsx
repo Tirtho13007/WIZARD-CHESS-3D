@@ -4,6 +4,7 @@ import { OfflineIndicator } from './PWAPlayStoreModal';
 import {
   ActiveUnityAdRequest,
   initUnityAdsBridge,
+  tryShowNativeInterstitialAd,
   tryShowNativeUnityAd,
   UNITY_ADS_CONFIG,
 } from './unityAdsManager';
@@ -207,10 +208,9 @@ export default function App() {
     setGameOver(false);
   };
 
-  // Show Native Unity Rewarded Ad if inside Android SDK bridge, otherwise open Full-Screen Rewarded Video Player
+  // Show Native AdMob / Unity Rewarded Ad if loaded, otherwise automatically open Full-Screen 5s Rewarded Video Player
   const launchUnityRewardedAd = (req: ActiveUnityAdRequest) => {
-    const handledByNative = tryShowNativeUnityAd(req);
-    if (!handledByNative) {
+    const openOverlayFallback = () => {
       getEngineAPI()?.setGamePaused?.(true);
       setActiveAd({
         ...req,
@@ -223,6 +223,11 @@ export default function App() {
           req.onCancel?.();
         },
       });
+    };
+
+    const handledByNative = tryShowNativeUnityAd(req, openOverlayFallback);
+    if (!handledByNative) {
+      openOverlayFallback();
     }
   };
 
@@ -281,7 +286,12 @@ export default function App() {
     soundAndHaptics.playButtonClick();
     setPauseModalOpen(false);
 
-    // Trigger Unity Rewarded Ad (BP_Rewarded_Android, Game ID 800410658, testMode: false)
+    if (getEngineAPI()?.canUndo && !getEngineAPI()?.canUndo?.()) {
+      showToast('Make a move on the board first to Undo.');
+      return;
+    }
+
+    // Trigger Rewarded Ad (AdMob / Unity Ads with guaranteed fallback)
     launchUnityRewardedAd({
       adType: 'rewarded',
       placementId: UNITY_ADS_CONFIG.placements.rewarded,
@@ -294,8 +304,8 @@ export default function App() {
         if (res?.ok) {
           showToast(
             selectedGameMode === 'local'
-              ? 'Undo Applied · Last Move Reversed'
-              : 'Undo Applied · Turn Reversed'
+              ? '↺ Undo Applied · Last Move Reversed'
+              : '↺ Undo Applied · Turn Reversed'
           );
         } else {
           showToast('Make a move on the board first to Undo.');
@@ -311,7 +321,7 @@ export default function App() {
     soundAndHaptics.playButtonClick();
     setPauseModalOpen(false);
 
-    // Trigger Unity Rewarded Ad (BP_Rewarded_Android, Game ID 800410658, testMode: false)
+    // Trigger Rewarded Ad (AdMob / Unity Ads with guaranteed fallback)
     launchUnityRewardedAd({
       adType: 'rewarded',
       placementId: UNITY_ADS_CONFIG.placements.rewarded,
@@ -322,7 +332,7 @@ export default function App() {
         setActiveAd(null);
         const res = getEngineAPI()?.showBestMoveHint?.();
         if (res?.ok && res.label) {
-          showToast(`Hint: ${res.label}`, 6000);
+          showToast(`★ Best Move Hint: ${res.label}`, 6500);
         } else {
           showToast(res?.reason || 'No hint available right now.');
         }
@@ -340,6 +350,7 @@ export default function App() {
     const checkmateOverlay = document.getElementById('checkmate-overlay');
     if (checkmateOverlay) checkmateOverlay.classList.remove('visible');
 
+    tryShowNativeInterstitialAd();
     resetStopwatch();
     getEngineAPI()?.startNewMatch?.({
       mode: selectedGameMode,
