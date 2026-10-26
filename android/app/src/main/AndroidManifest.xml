@@ -15,25 +15,17 @@
         android:label="WIZARD CHESS 3D"
         android:supportsRtl="true"
         android:usesCleartextTraffic="true"
-        android:theme="@android:style/Theme.NoTitleBar.Fullscreen"
+        android:theme="@style/Theme.AppCompat.NoActionBar"
         tools:targetApi="34">
 
-        <!-- Google AdMob App ID -->
+        <!-- Google AdMob Publisher Application ID for ca-app-pub-1151788930010230 -->
         <meta-data
             android:name="com.google.android.gms.ads.APPLICATION_ID"
             android:value="ca-app-pub-1151788930010230~3860898466" />
 
-        <!-- Prevent AdMob initialization from blocking UI thread on Android 14/15/16 -->
-        <meta-data
-            android:name="com.google.android.gms.ads.flag.OPTIMIZE_INITIALIZATION"
-            android:value="true" />
-        <meta-data
-            android:name="com.google.android.gms.ads.flag.OPTIMIZE_AD_LOADING"
-            android:value="true" />
-
         <activity
             android:name=".MainActivity"
-            android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboardHidden|uiMode"
+            android:configChanges="orientation|screenSize|screenLayout|keyboardHidden|uiMode"
             android:exported="true"
             android:launchMode="singleTask"
             android:screenOrientation="sensorLandscape">

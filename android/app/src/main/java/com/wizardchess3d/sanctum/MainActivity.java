@@ -1,7 +1,6 @@
 package com.wizardchess3d.sanctum;
 
 import android.annotation.SuppressLint;
-import android.app.Activity;
 import android.content.pm.ActivityInfo;
 import android.graphics.Color;
 import android.os.Build;
@@ -26,6 +25,7 @@ import android.webkit.WebViewClient;
 import android.widget.FrameLayout;
 
 import androidx.annotation.NonNull;
+import androidx.appcompat.app.AppCompatActivity;
 import androidx.webkit.WebViewAssetLoader;
 
 import com.google.android.gms.ads.AdError;
@@ -41,7 +41,7 @@ import com.google.android.gms.ads.interstitial.InterstitialAdLoadCallback;
 import com.google.android.gms.ads.rewarded.RewardedAd;
 import com.google.android.gms.ads.rewarded.RewardedAdLoadCallback;
 
-public class MainActivity extends Activity {
+public class MainActivity extends AppCompatActivity {
 
     private static final String TAG = "WizardChessAdMob";
 
@@ -66,18 +66,24 @@ public class MainActivity extends Activity {
     private String pendingShowPlacementId = null;
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
 
+    private final Runnable fallbackTimeoutRunnable = new Runnable() {
+        @Override
+        public void run() {
+            if (pendingShowPlacementId != null) {
+                final String pId = pendingShowPlacementId;
+                pendingShowPlacementId = null;
+                evalJs("window.onUnityAdsFallbackToOverlay && window.onUnityAdsFallbackToOverlay('" + pId + "');");
+            }
+        }
+    };
+
     @SuppressLint("SetJavaScriptEnabled")
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
 
         try {
-            requestWindowFeature(Window.FEATURE_NO_TITLE);
             getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
-        } catch (Throwable ignored) {
-        }
-
-        try {
             setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE);
         } catch (Throwable ignored) {
         }
@@ -170,7 +176,6 @@ public class MainActivity extends Activity {
                 public void onAdFailedToLoad(@NonNull LoadAdError loadAdError) {
                     Log.w(TAG, "Banner failed (" + unitId + "): " + loadAdError.getMessage());
                     if (!isBackup) {
-                        // Automatically fall back to guaranteed-fill AdMob Banner when new unit has NO_FILL
                         setupAdMobBanner(BACKUP_BANNER_UNIT_ID, true);
                     }
                 }
@@ -202,6 +207,7 @@ public class MainActivity extends Activity {
                     } else if (pendingShowPlacementId != null) {
                         final String pId = pendingShowPlacementId;
                         pendingShowPlacementId = null;
+                        mainHandler.removeCallbacks(fallbackTimeoutRunnable);
                         evalJs("window.onUnityAdsFallbackToOverlay && window.onUnityAdsFallbackToOverlay('" + pId + "');");
                     }
                 }
@@ -213,7 +219,6 @@ public class MainActivity extends Activity {
                     admobRewardedAd = ad;
                     evalJs("window.onUnityAdsAdLoaded && window.onUnityAdsAdLoaded('BP_Rewarded_Android');");
 
-                    // If user already tapped Hint or Undo while the ad was loading, show it immediately!
                     if (pendingShowPlacementId != null) {
                         final String pId = pendingShowPlacementId;
                         pendingShowPlacementId = null;
@@ -227,6 +232,7 @@ public class MainActivity extends Activity {
             if (pendingShowPlacementId != null) {
                 final String pId = pendingShowPlacementId;
                 pendingShowPlacementId = null;
+                mainHandler.removeCallbacks(fallbackTimeoutRunnable);
                 evalJs("window.onUnityAdsFallbackToOverlay && window.onUnityAdsFallbackToOverlay('" + pId + "');");
             }
         }
@@ -341,7 +347,6 @@ public class MainActivity extends Activity {
 
         @JavascriptInterface
         public boolean isAdReady(String adUnitId) {
-            // Always return true so showRewardedAd handles showing or on-demand loading of real AdMob ad
             return true;
         }
 
@@ -389,13 +394,11 @@ public class MainActivity extends Activity {
         public void showRewardedAd(String adUnitId) {
             final String unit = (adUnitId == null || adUnitId.isEmpty()) ? "BP_Rewarded_Android" : adUnitId;
             runOnUiThread(() -> {
-                // 1. If AdMob Rewarded Ad is already loaded, show it immediately!
                 if (admobRewardedAd != null) {
                     presentLoadedRewardedAd(unit);
                     return;
                 }
 
-                // 2. If AdMob Interstitial Ad is loaded, show it as fullscreen video/interstitial ad!
                 if (admobInterstitialAd != null) {
                     try {
                         InterstitialAd inter = admobInterstitialAd;
@@ -425,16 +428,12 @@ public class MainActivity extends Activity {
                     }
                 }
 
-                // 3. Otherwise, load AdMob Rewarded Ad right now and wait up to 3.5s before offline fallback
                 pendingShowPlacementId = unit;
-                loadAdMobRewardedAd(false);
-                mainHandler.postDelayed(() -> {
-                    if (pendingShowPlacementId != null) {
-                        final String pId = pendingShowPlacementId;
-                        pendingShowPlacementId = null;
-                        evalJs("window.onUnityAdsFallbackToOverlay && window.onUnityAdsFallbackToOverlay('" + pId + "');");
-                    }
-                }, 3500);
+                if (!isLoadingRewarded) {
+                    loadAdMobRewardedAd(false);
+                }
+                mainHandler.removeCallbacks(fallbackTimeoutRunnable);
+                mainHandler.postDelayed(fallbackTimeoutRunnable, 6000);
             });
         }
     }
