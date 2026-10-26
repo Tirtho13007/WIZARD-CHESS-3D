@@ -45,15 +45,10 @@ public class MainActivity extends AppCompatActivity {
 
     private static final String TAG = "WizardChessAdMob";
 
-    // Stage 1: User's Production Google AdMob Ad Unit IDs
+    // Strictly 100% User's Production Google AdMob Ad Unit IDs (Zero Test IDs)
     private static String PROD_BANNER_UNIT_ID = "ca-app-pub-1151788930010230/3860898466";
     private static String PROD_INTERSTITIAL_UNIT_ID = "ca-app-pub-1151788930010230/9269223538";
     private static String PROD_REWARDED_UNIT_ID = "ca-app-pub-1151788930010230/6643060191";
-
-    // Stage 2: Official Google AdMob Guaranteed-Fill Backup IDs (used automatically when new AdMob unit returns NO_FILL)
-    private static final String BACKUP_BANNER_UNIT_ID = "ca-app-pub-3940256099942544/6300978111";
-    private static final String BACKUP_INTERSTITIAL_UNIT_ID = "ca-app-pub-3940256099942544/1033173712";
-    private static final String BACKUP_REWARDED_UNIT_ID = "ca-app-pub-3940256099942544/5224354917";
 
     private WebView webView;
     private FrameLayout rootLayout;
@@ -98,7 +93,7 @@ public class MainActivity extends AppCompatActivity {
                 ViewGroup.LayoutParams.MATCH_PARENT
         ));
 
-        // IMPORTANT for Android 15 / Android 16: Always call setContentView BEFORE WindowInsetsController!
+        // Always call setContentView BEFORE WindowInsetsController for Android 15 / Android 16 compatibility
         setContentView(rootLayout);
         rootLayout.post(this::hideSystemUI);
 
@@ -138,14 +133,14 @@ public class MainActivity extends AppCompatActivity {
             Log.e(TAG, "WebView setup error: " + t.getMessage());
         }
 
-        // Initialize Google AdMob SDK safely
+        // Initialize Google AdMob SDK with Production Ad Units only
         try {
             MobileAds.initialize(this, initializationStatus -> {
-                Log.d(TAG, "AdMob SDK Initialized");
+                Log.d(TAG, "AdMob SDK Initialized (Production Mode)");
                 runOnUiThread(() -> {
-                    loadAdMobRewardedAd(false);
-                    loadAdMobInterstitialAd(false);
-                    setupAdMobBanner(PROD_BANNER_UNIT_ID, false);
+                    loadAdMobRewardedAd();
+                    loadAdMobInterstitialAd();
+                    setupAdMobBanner();
                 });
             });
         } catch (Throwable t) {
@@ -153,8 +148,8 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
-    private void setupAdMobBanner(final String unitId, final boolean isBackup) {
-        if (rootLayout == null || isFinishing()) return;
+    private void setupAdMobBanner() {
+        if (rootLayout == null || isFinishing() || PROD_BANNER_UNIT_ID == null || PROD_BANNER_UNIT_ID.isEmpty()) return;
         try {
             if (admobBannerView != null) {
                 rootLayout.removeView(admobBannerView);
@@ -162,22 +157,19 @@ public class MainActivity extends AppCompatActivity {
                 admobBannerView = null;
             }
             admobBannerView = new AdView(this);
-            admobBannerView.setAdUnitId(unitId);
+            admobBannerView.setAdUnitId(PROD_BANNER_UNIT_ID);
             admobBannerView.setAdSize(AdSize.BANNER);
             FrameLayout.LayoutParams bannerParams = new FrameLayout.LayoutParams(
                     ViewGroup.LayoutParams.WRAP_CONTENT,
                     ViewGroup.LayoutParams.WRAP_CONTENT
             );
-            bannerParams.gravity = Gravity.TOP | Gravity.CENTER_HORIZONTAL;
+            bannerParams.gravity = Gravity.BOTTOM | Gravity.CENTER_HORIZONTAL;
             rootLayout.addView(admobBannerView, bannerParams);
 
             admobBannerView.setAdListener(new AdListener() {
                 @Override
                 public void onAdFailedToLoad(@NonNull LoadAdError loadAdError) {
-                    Log.w(TAG, "Banner failed (" + unitId + "): " + loadAdError.getMessage());
-                    if (!isBackup) {
-                        setupAdMobBanner(BACKUP_BANNER_UNIT_ID, true);
-                    }
+                    Log.w(TAG, "Production Banner failed to load: " + loadAdError.getMessage());
                 }
             });
 
@@ -187,24 +179,20 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
-    private void loadAdMobRewardedAd(final boolean useBackup) {
+    private void loadAdMobRewardedAd() {
         if (isLoadingRewarded || admobRewardedAd != null || isFinishing()) return;
-        final String targetUnitId = useBackup ? BACKUP_REWARDED_UNIT_ID : PROD_REWARDED_UNIT_ID;
         isLoadingRewarded = true;
 
         try {
             AdRequest adRequest = new AdRequest.Builder().build();
-            RewardedAd.load(this, targetUnitId, adRequest, new RewardedAdLoadCallback() {
+            RewardedAd.load(this, PROD_REWARDED_UNIT_ID, adRequest, new RewardedAdLoadCallback() {
                 @Override
                 public void onAdFailedToLoad(@NonNull LoadAdError loadAdError) {
-                    Log.w(TAG, "Rewarded failed (" + targetUnitId + "): " + loadAdError.getMessage());
+                    Log.w(TAG, "Production Rewarded failed (" + PROD_REWARDED_UNIT_ID + "): " + loadAdError.getMessage());
                     isLoadingRewarded = false;
                     admobRewardedAd = null;
 
-                    if (!useBackup) {
-                        // Stage 2: Immediately load Google AdMob backup video ad so real AdMob ad always plays!
-                        loadAdMobRewardedAd(true);
-                    } else if (pendingShowPlacementId != null) {
+                    if (pendingShowPlacementId != null) {
                         final String pId = pendingShowPlacementId;
                         pendingShowPlacementId = null;
                         mainHandler.removeCallbacks(fallbackTimeoutRunnable);
@@ -214,7 +202,7 @@ public class MainActivity extends AppCompatActivity {
 
                 @Override
                 public void onAdLoaded(@NonNull RewardedAd ad) {
-                    Log.d(TAG, "AdMob Rewarded Ad Loaded (" + targetUnitId + ")");
+                    Log.d(TAG, "Production AdMob Rewarded Ad Loaded (" + PROD_REWARDED_UNIT_ID + ")");
                     isLoadingRewarded = false;
                     admobRewardedAd = ad;
                     evalJs("window.onUnityAdsAdLoaded && window.onUnityAdsAdLoaded('BP_Rewarded_Android');");
@@ -238,27 +226,23 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
-    private void loadAdMobInterstitialAd(final boolean useBackup) {
+    private void loadAdMobInterstitialAd() {
         if (isLoadingInterstitial || admobInterstitialAd != null || isFinishing()) return;
-        final String targetUnitId = useBackup ? BACKUP_INTERSTITIAL_UNIT_ID : PROD_INTERSTITIAL_UNIT_ID;
         isLoadingInterstitial = true;
 
         try {
             AdRequest adRequest = new AdRequest.Builder().build();
-            InterstitialAd.load(this, targetUnitId, adRequest, new InterstitialAdLoadCallback() {
+            InterstitialAd.load(this, PROD_INTERSTITIAL_UNIT_ID, adRequest, new InterstitialAdLoadCallback() {
                 @Override
                 public void onAdFailedToLoad(@NonNull LoadAdError loadAdError) {
-                    Log.w(TAG, "Interstitial failed (" + targetUnitId + "): " + loadAdError.getMessage());
+                    Log.w(TAG, "Production Interstitial failed (" + PROD_INTERSTITIAL_UNIT_ID + "): " + loadAdError.getMessage());
                     isLoadingInterstitial = false;
                     admobInterstitialAd = null;
-                    if (!useBackup) {
-                        loadAdMobInterstitialAd(true);
-                    }
                 }
 
                 @Override
                 public void onAdLoaded(@NonNull InterstitialAd ad) {
-                    Log.d(TAG, "AdMob Interstitial Ad Loaded (" + targetUnitId + ")");
+                    Log.d(TAG, "Production AdMob Interstitial Ad Loaded (" + PROD_INTERSTITIAL_UNIT_ID + ")");
                     isLoadingInterstitial = false;
                     admobInterstitialAd = ad;
                 }
@@ -286,7 +270,7 @@ public class MainActivity extends AppCompatActivity {
 
                 @Override
                 public void onAdFailedToShowFullScreenContent(@NonNull AdError adError) {
-                    loadAdMobRewardedAd(false);
+                    loadAdMobRewardedAd();
                     evalJs("window.onUnityAdsFallbackToOverlay && window.onUnityAdsFallbackToOverlay('" + unit + "');");
                 }
 
@@ -294,7 +278,7 @@ public class MainActivity extends AppCompatActivity {
                 public void onAdDismissedFullScreenContent() {
                     String state = admobRewardEarned ? "COMPLETED" : "SKIPPED";
                     evalJs("window.onUnityAdsShowComplete && window.onUnityAdsShowComplete('" + unit + "', '" + state + "');");
-                    loadAdMobRewardedAd(false);
+                    loadAdMobRewardedAd();
                 }
             });
 
@@ -310,8 +294,8 @@ public class MainActivity extends AppCompatActivity {
         @JavascriptInterface
         public void initialize(String gameId, boolean testMode) {
             runOnUiThread(() -> {
-                if (admobRewardedAd == null) loadAdMobRewardedAd(false);
-                if (admobInterstitialAd == null) loadAdMobInterstitialAd(false);
+                if (admobRewardedAd == null) loadAdMobRewardedAd();
+                if (admobInterstitialAd == null) loadAdMobInterstitialAd();
             });
         }
 
@@ -327,8 +311,8 @@ public class MainActivity extends AppCompatActivity {
                 PROD_REWARDED_UNIT_ID = rewardedId.trim();
             }
             runOnUiThread(() -> {
-                if (admobRewardedAd == null) loadAdMobRewardedAd(false);
-                if (admobInterstitialAd == null) loadAdMobInterstitialAd(false);
+                if (admobRewardedAd == null) loadAdMobRewardedAd();
+                if (admobInterstitialAd == null) loadAdMobInterstitialAd();
             });
         }
 
@@ -336,7 +320,7 @@ public class MainActivity extends AppCompatActivity {
         public void setAdMobRewardedUnitId(String unitId) {
             if (unitId != null && !unitId.trim().isEmpty()) {
                 PROD_REWARDED_UNIT_ID = unitId.trim();
-                runOnUiThread(() -> loadAdMobRewardedAd(false));
+                runOnUiThread(MainActivity.this::loadAdMobRewardedAd);
             }
         }
 
@@ -353,8 +337,8 @@ public class MainActivity extends AppCompatActivity {
         @JavascriptInterface
         public void load(String adUnitId) {
             runOnUiThread(() -> {
-                if (admobRewardedAd == null) loadAdMobRewardedAd(false);
-                if (admobInterstitialAd == null) loadAdMobInterstitialAd(false);
+                if (admobRewardedAd == null) loadAdMobRewardedAd();
+                if (admobInterstitialAd == null) loadAdMobInterstitialAd();
             });
         }
 
@@ -373,19 +357,19 @@ public class MainActivity extends AppCompatActivity {
                         inter.setFullScreenContentCallback(new FullScreenContentCallback() {
                             @Override
                             public void onAdDismissedFullScreenContent() {
-                                loadAdMobInterstitialAd(false);
+                                loadAdMobInterstitialAd();
                             }
 
                             @Override
                             public void onAdFailedToShowFullScreenContent(@NonNull AdError adError) {
-                                loadAdMobInterstitialAd(false);
+                                loadAdMobInterstitialAd();
                             }
                         });
                         inter.show(MainActivity.this);
                     } catch (Throwable ignored) {
                     }
                 } else {
-                    loadAdMobInterstitialAd(false);
+                    loadAdMobInterstitialAd();
                 }
             });
         }
@@ -411,15 +395,15 @@ public class MainActivity extends AppCompatActivity {
 
                             @Override
                             public void onAdFailedToShowFullScreenContent(@NonNull AdError adError) {
-                                loadAdMobInterstitialAd(false);
+                                loadAdMobInterstitialAd();
                                 evalJs("window.onUnityAdsFallbackToOverlay && window.onUnityAdsFallbackToOverlay('" + unit + "');");
                             }
 
                             @Override
                             public void onAdDismissedFullScreenContent() {
                                 evalJs("window.onUnityAdsShowComplete && window.onUnityAdsShowComplete('" + unit + "', 'COMPLETED');");
-                                loadAdMobInterstitialAd(false);
-                                loadAdMobRewardedAd(false);
+                                loadAdMobInterstitialAd();
+                                loadAdMobRewardedAd();
                             }
                         });
                         inter.show(MainActivity.this);
@@ -430,10 +414,10 @@ public class MainActivity extends AppCompatActivity {
 
                 pendingShowPlacementId = unit;
                 if (!isLoadingRewarded) {
-                    loadAdMobRewardedAd(false);
+                    loadAdMobRewardedAd();
                 }
                 mainHandler.removeCallbacks(fallbackTimeoutRunnable);
-                mainHandler.postDelayed(fallbackTimeoutRunnable, 6000);
+                mainHandler.postDelayed(fallbackTimeoutRunnable, 4000);
             });
         }
     }

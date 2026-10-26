@@ -9,6 +9,7 @@ export const UNITY_ADS_CONFIG = {
     rewarded: 'BP_Rewarded_Android',
   },
   admob: {
+    appId: 'ca-app-pub-1151788930010230~5173980133',
     publisherId: 'pub-1151788930010230',
     bannerUnitId: 'ca-app-pub-1151788930010230/3860898466',
     interstitialUnitId: 'ca-app-pub-1151788930010230/9269223538',

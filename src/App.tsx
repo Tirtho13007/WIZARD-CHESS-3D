@@ -10,6 +10,7 @@ import {
 } from './unityAdsManager';
 import { UnityAdOverlay } from './UnityAdOverlay';
 import { AudioHapticSettings, soundAndHaptics } from './soundAndHaptics';
+import { LegalTabType, VantargoLegalModal } from './VantargoLegalModal';
 
 export type AIDifficultyLevel = 'beginner' | 'professional' | 'grandmaster';
 export type ChessGameMode = 'single' | 'local';
@@ -94,6 +95,7 @@ export default function App() {
   const [selectedSide, setSelectedSide] = useState<'w' | 'b'>('w');
   const [pauseModalOpen, setPauseModalOpen] = useState(false);
   const [settingsOnlyModal, setSettingsOnlyModal] = useState(false);
+  const [legalModalTab, setLegalModalTab] = useState<LegalTabType | null>(null);
   const [activeCamPreset, setActiveCamPreset] = useState<'player' | 'top' | 'side' | 'wide'>(
     'player'
   );
@@ -563,6 +565,44 @@ export default function App() {
             >
               START MATCH
             </button>
+
+            {/* Vantargo Company & Legal Links (Google Play Store Compliance) */}
+            <div className="vantargo-start-footer">
+              <span className="vantargo-brand-credit">&copy; Vantargo</span>
+              <span className="vantargo-dot-sep">&middot;</span>
+              <button
+                type="button"
+                className="vantargo-link-btn"
+                onClick={() => {
+                  soundAndHaptics.playButtonClick();
+                  setLegalModalTab('privacy');
+                }}
+              >
+                Privacy Policy
+              </button>
+              <span className="vantargo-dot-sep">&middot;</span>
+              <button
+                type="button"
+                className="vantargo-link-btn"
+                onClick={() => {
+                  soundAndHaptics.playButtonClick();
+                  setLegalModalTab('terms');
+                }}
+              >
+                Terms
+              </button>
+              <span className="vantargo-dot-sep">&middot;</span>
+              <button
+                type="button"
+                className="vantargo-link-btn"
+                onClick={() => {
+                  soundAndHaptics.playButtonClick();
+                  setLegalModalTab('about');
+                }}
+              >
+                About Us
+              </button>
+            </div>
           </div>
         </div>
       )}
@@ -862,10 +902,51 @@ export default function App() {
                   )}
                 </div>
               )}
+
+              {/* Vantargo Legal & Company Info Row inside Settings */}
+              <div className="minimal-pill-group three-col vantargo-settings-legal">
+                <button
+                  type="button"
+                  className="minimal-seg-btn"
+                  onClick={() => {
+                    soundAndHaptics.playButtonClick();
+                    setLegalModalTab('privacy');
+                  }}
+                >
+                  Privacy Policy
+                </button>
+                <button
+                  type="button"
+                  className="minimal-seg-btn"
+                  onClick={() => {
+                    soundAndHaptics.playButtonClick();
+                    setLegalModalTab('terms');
+                  }}
+                >
+                  Terms &amp; Conditions
+                </button>
+                <button
+                  type="button"
+                  className="minimal-seg-btn"
+                  onClick={() => {
+                    soundAndHaptics.playButtonClick();
+                    setLegalModalTab('about');
+                  }}
+                >
+                  About Vantargo
+                </button>
+              </div>
             </div>
           </div>
         </div>
       )}
+
+      {/* Vantargo Privacy Policy, Terms & Conditions, and About Us Modal */}
+      <VantargoLegalModal
+        activeTab={legalModalTab}
+        onSelectTab={(tab) => setLegalModalTab(tab)}
+        onClose={() => setLegalModalTab(null)}
+      />
 
       <div id="checkmate-overlay" role="status" aria-live="polite">
         <div className="checkmate-banner">

@@ -52,7 +52,7 @@ jobs:
               -validity 10000 \
               -storepass wizardchess123 \
               -keypass wizardchess123 \
-              -dname "CN=Wizard Chess 3D, OU=Games, O=Sanctum, L=Dhaka, S=Dhaka, C=BD"
+              -dname "CN=Wizard Chess 3D, OU=Games, O=Vantargo, L=Dhaka, S=Dhaka, C=BD"
           fi
 
       - name: Build Signed Native Android APK & Play Store AAB
