@@ -24,9 +24,6 @@ jobs:
           distribution: 'temurin'
           java-version: '17'
 
-      - name: Setup Android SDK
-        uses: android-actions/setup-android@v3
-
       - name: Setup Gradle 8.7
         uses: gradle/actions/setup-gradle@v4
         with:
@@ -36,7 +33,7 @@ jobs:
         run: |
           rm -f package-lock.json
           npm install --legacy-peer-deps
-          npm run build
+          npx vite build
 
       - name: Bundle Built Game Assets into Native Android APK
         run: |
