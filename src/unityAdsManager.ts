@@ -164,10 +164,9 @@ export function tryShowNativeUnityAd(
     };
 
     const handleShowComplete = (
-      adUnitId: string,
+      _adUnitId: string,
       state: 'COMPLETED' | 'SKIPPED' | 'ERROR'
     ) => {
-      if (adUnitId && adUnitId !== request.placementId) return;
       nativeBridge.load?.(request.placementId);
 
       if (state === 'COMPLETED') {

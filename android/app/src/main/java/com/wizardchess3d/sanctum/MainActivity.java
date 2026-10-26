@@ -77,15 +77,48 @@ public class MainActivity extends AppCompatActivity {
     private BannerView unityBannerView = null;
     private RewardedAd admobRewardedAd = null;
     private InterstitialAd admobInterstitialAd = null;
+
+    private boolean admobInitialized = false;
     private boolean isLoadingRewarded = false;
     private boolean isLoadingInterstitial = false;
     private boolean admobRewardEarned = false;
 
     private boolean unityInitialized = false;
     private final Set<String> loadedUnityPlacements = new HashSet<>();
+    private final Set<String> loadingUnityPlacements = new HashSet<>();
+
+    private String lastAdMobError = "none";
+    private String lastUnityError = "none";
 
     private String pendingShowPlacementId = null;
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
+
+    private final Runnable retryAdMobRewardedRunnable = new Runnable() {
+        @Override
+        public void run() {
+            if (!isFinishing() && admobInitialized && admobRewardedAd == null && !isLoadingRewarded) {
+                loadAdMobRewardedAd();
+            }
+        }
+    };
+
+    private final Runnable retryAdMobInterstitialRunnable = new Runnable() {
+        @Override
+        public void run() {
+            if (!isFinishing() && admobInitialized && admobInterstitialAd == null && !isLoadingInterstitial) {
+                loadAdMobInterstitialAd();
+            }
+        }
+    };
+
+    private final Runnable retryUnityPlacementsRunnable = new Runnable() {
+        @Override
+        public void run() {
+            if (!isFinishing() && unityInitialized) {
+                preloadAllUnityPlacements();
+            }
+        }
+    };
 
     private final Runnable fallbackTimeoutRunnable = new Runnable() {
         @Override
@@ -93,7 +126,10 @@ public class MainActivity extends AppCompatActivity {
             if (pendingShowPlacementId != null) {
                 final String pId = pendingShowPlacementId;
                 pendingShowPlacementId = null;
-                // Before falling back to HTML overlay, check if Unity Ads finished loading in the meantime
+                if (admobRewardedAd != null) {
+                    presentLoadedRewardedAd(pId);
+                    return;
+                }
                 String readyUnityPlacement = getReadyUnityRewardedPlacement();
                 if (readyUnityPlacement != null) {
                     presentUnityRewardedAd(readyUnityPlacement, pId);
@@ -170,8 +206,9 @@ public class MainActivity extends AppCompatActivity {
         // 1. Initialize Google AdMob SDK (Primary Ad Network)
         try {
             MobileAds.initialize(this, initializationStatus -> {
-                Log.d(TAG, "AdMob SDK Initialized (Production Mode)");
+                Log.d(TAG, "AdMob SDK Initialized");
                 runOnUiThread(() -> {
+                    admobInitialized = true;
                     loadAdMobRewardedAd();
                     loadAdMobInterstitialAd();
                     setupAdMobBanner();
@@ -181,7 +218,7 @@ public class MainActivity extends AppCompatActivity {
             Log.e(TAG, "AdMob init error: " + t.getMessage());
         }
 
-        // 2. Initialize Official Unity Ads SDK 4.x (Secondary / Dual Ad Network)
+        // 2. Initialize Official Unity Ads SDK 4.x using Activity context
         initUnityAdsSdk(UNITY_GAME_ID, UNITY_TEST_MODE);
     }
 
@@ -193,7 +230,8 @@ public class MainActivity extends AppCompatActivity {
                 preloadAllUnityPlacements();
                 return;
             }
-            UnityAds.initialize(getApplicationContext(), gameId.trim(), testMode, new IUnityAdsInitializationListener() {
+            // Pass Activity context (MainActivity.this) for Unity Ads SDK 4.x compatibility
+            UnityAds.initialize(MainActivity.this, gameId.trim(), testMode, new IUnityAdsInitializationListener() {
                 @Override
                 public void onInitializationComplete() {
                     Log.d(TAG, "Unity Ads SDK Initialized (gameId=" + gameId + ")");
@@ -206,6 +244,7 @@ public class MainActivity extends AppCompatActivity {
 
                 @Override
                 public void onInitializationFailed(UnityAds.UnityAdsInitializationError error, String message) {
+                    lastUnityError = error + ": " + message;
                     Log.w(TAG, "Unity Ads init failed (" + error + "): " + message);
                     runOnUiThread(() -> evalJs("window.onUnityAdsInitializationFailed && window.onUnityAdsInitializationFailed('" + error + "', '" + safeJsStr(message) + "');"));
                 }
@@ -224,12 +263,19 @@ public class MainActivity extends AppCompatActivity {
 
     private void loadUnityPlacement(final String placementId) {
         if (!unityInitialized || placementId == null || placementId.isEmpty() || isFinishing()) return;
+        synchronized (loadedUnityPlacements) {
+            if (loadedUnityPlacements.contains(placementId) || loadingUnityPlacements.contains(placementId)) {
+                return;
+            }
+            loadingUnityPlacements.add(placementId);
+        }
         try {
             UnityAds.load(placementId, new IUnityAdsLoadListener() {
                 @Override
                 public void onUnityAdsAdLoaded(String loadedId) {
                     Log.d(TAG, "Unity Ads Loaded: " + loadedId);
                     synchronized (loadedUnityPlacements) {
+                        loadingUnityPlacements.remove(loadedId);
                         loadedUnityPlacements.add(loadedId);
                     }
                     runOnUiThread(() -> {
@@ -245,14 +291,28 @@ public class MainActivity extends AppCompatActivity {
 
                 @Override
                 public void onUnityAdsFailedToLoad(String failedId, UnityAds.UnityAdsLoadError error, String message) {
+                    lastUnityError = failedId + " -> " + error + ": " + message;
                     Log.w(TAG, "Unity Ads Failed to load (" + failedId + "): " + error + " - " + message);
                     synchronized (loadedUnityPlacements) {
+                        loadingUnityPlacements.remove(failedId);
                         loadedUnityPlacements.remove(failedId);
                     }
+                    // Schedule background retry in 15s
+                    mainHandler.removeCallbacks(retryUnityPlacementsRunnable);
+                    mainHandler.postDelayed(retryUnityPlacementsRunnable, 15000);
                 }
             });
         } catch (Throwable t) {
+            synchronized (loadedUnityPlacements) {
+                loadingUnityPlacements.remove(placementId);
+            }
             Log.w(TAG, "Unity Ads load error: " + t.getMessage());
+        }
+    }
+
+    private boolean isAnyUnityPlacementLoading() {
+        synchronized (loadedUnityPlacements) {
+            return !loadingUnityPlacements.isEmpty();
         }
     }
 
@@ -337,7 +397,7 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void setupAdMobBanner() {
-        if (rootLayout == null || isFinishing() || PROD_BANNER_UNIT_ID == null || PROD_BANNER_UNIT_ID.isEmpty()) return;
+        if (!admobInitialized || rootLayout == null || isFinishing() || PROD_BANNER_UNIT_ID == null || PROD_BANNER_UNIT_ID.isEmpty()) return;
         try {
             if (admobBannerView != null) {
                 rootLayout.removeView(admobBannerView);
@@ -357,7 +417,7 @@ public class MainActivity extends AppCompatActivity {
             admobBannerView.setAdListener(new AdListener() {
                 @Override
                 public void onAdFailedToLoad(@NonNull LoadAdError loadAdError) {
-                    Log.w(TAG, "Production Banner failed to load: " + loadAdError.getMessage());
+                    Log.w(TAG, "Production Banner failed to load (code=" + loadAdError.getCode() + "): " + loadAdError.getMessage());
                     setupUnityBannerFallback();
                 }
             });
@@ -370,7 +430,7 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void loadAdMobRewardedAd() {
-        if (isLoadingRewarded || admobRewardedAd != null || isFinishing()) return;
+        if (!admobInitialized || isLoadingRewarded || admobRewardedAd != null || isFinishing()) return;
         isLoadingRewarded = true;
 
         try {
@@ -378,9 +438,14 @@ public class MainActivity extends AppCompatActivity {
             RewardedAd.load(this, PROD_REWARDED_UNIT_ID, adRequest, new RewardedAdLoadCallback() {
                 @Override
                 public void onAdFailedToLoad(@NonNull LoadAdError loadAdError) {
-                    Log.w(TAG, "Production Rewarded failed (" + PROD_REWARDED_UNIT_ID + "): " + loadAdError.getMessage());
+                    lastAdMobError = "code=" + loadAdError.getCode() + " (" + loadAdError.getMessage() + ")";
+                    Log.w(TAG, "Production Rewarded failed (" + PROD_REWARDED_UNIT_ID + "): " + lastAdMobError);
                     isLoadingRewarded = false;
                     admobRewardedAd = null;
+
+                    // Schedule automatic background retry in 12 seconds so next request is ready
+                    mainHandler.removeCallbacks(retryAdMobRewardedRunnable);
+                    mainHandler.postDelayed(retryAdMobRewardedRunnable, 12000);
 
                     if (pendingShowPlacementId != null) {
                         final String pId = pendingShowPlacementId;
@@ -389,7 +454,8 @@ public class MainActivity extends AppCompatActivity {
                             pendingShowPlacementId = null;
                             mainHandler.removeCallbacks(fallbackTimeoutRunnable);
                             presentUnityRewardedAd(readyUnity, pId);
-                        } else {
+                        } else if (!isAnyUnityPlacementLoading()) {
+                            // Only fall back immediately if Unity Ads is also NOT currently loading
                             pendingShowPlacementId = null;
                             mainHandler.removeCallbacks(fallbackTimeoutRunnable);
                             evalJs("window.onUnityAdsFallbackToOverlay && window.onUnityAdsFallbackToOverlay('" + pId + "');");
@@ -402,6 +468,7 @@ public class MainActivity extends AppCompatActivity {
                     Log.d(TAG, "Production AdMob Rewarded Ad Loaded (" + PROD_REWARDED_UNIT_ID + ")");
                     isLoadingRewarded = false;
                     admobRewardedAd = ad;
+                    lastAdMobError = "loaded";
                     evalJs("window.onUnityAdsAdLoaded && window.onUnityAdsAdLoaded('BP_Rewarded_Android');");
 
                     if (pendingShowPlacementId != null) {
@@ -414,17 +481,13 @@ public class MainActivity extends AppCompatActivity {
             });
         } catch (Throwable t) {
             isLoadingRewarded = false;
-            if (pendingShowPlacementId != null) {
-                final String pId = pendingShowPlacementId;
-                pendingShowPlacementId = null;
-                mainHandler.removeCallbacks(fallbackTimeoutRunnable);
-                evalJs("window.onUnityAdsFallbackToOverlay && window.onUnityAdsFallbackToOverlay('" + pId + "');");
-            }
+            mainHandler.removeCallbacks(retryAdMobRewardedRunnable);
+            mainHandler.postDelayed(retryAdMobRewardedRunnable, 12000);
         }
     }
 
     private void loadAdMobInterstitialAd() {
-        if (isLoadingInterstitial || admobInterstitialAd != null || isFinishing()) return;
+        if (!admobInitialized || isLoadingInterstitial || admobInterstitialAd != null || isFinishing()) return;
         isLoadingInterstitial = true;
 
         try {
@@ -435,6 +498,8 @@ public class MainActivity extends AppCompatActivity {
                     Log.w(TAG, "Production Interstitial failed (" + PROD_INTERSTITIAL_UNIT_ID + "): " + loadAdError.getMessage());
                     isLoadingInterstitial = false;
                     admobInterstitialAd = null;
+                    mainHandler.removeCallbacks(retryAdMobInterstitialRunnable);
+                    mainHandler.postDelayed(retryAdMobInterstitialRunnable, 15000);
                 }
 
                 @Override
@@ -505,8 +570,10 @@ public class MainActivity extends AppCompatActivity {
             }
             UNITY_TEST_MODE = testMode;
             runOnUiThread(() -> {
-                if (admobRewardedAd == null) loadAdMobRewardedAd();
-                if (admobInterstitialAd == null) loadAdMobInterstitialAd();
+                if (admobInitialized) {
+                    if (admobRewardedAd == null) loadAdMobRewardedAd();
+                    if (admobInterstitialAd == null) loadAdMobInterstitialAd();
+                }
                 initUnityAdsSdk(UNITY_GAME_ID, UNITY_TEST_MODE);
             });
         }
@@ -523,8 +590,10 @@ public class MainActivity extends AppCompatActivity {
                 PROD_REWARDED_UNIT_ID = rewardedId.trim();
             }
             runOnUiThread(() -> {
-                if (admobRewardedAd == null) loadAdMobRewardedAd();
-                if (admobInterstitialAd == null) loadAdMobInterstitialAd();
+                if (admobInitialized) {
+                    if (admobRewardedAd == null) loadAdMobRewardedAd();
+                    if (admobInterstitialAd == null) loadAdMobInterstitialAd();
+                }
             });
         }
 
@@ -532,7 +601,9 @@ public class MainActivity extends AppCompatActivity {
         public void setAdMobRewardedUnitId(String unitId) {
             if (unitId != null && !unitId.trim().isEmpty()) {
                 PROD_REWARDED_UNIT_ID = unitId.trim();
-                runOnUiThread(MainActivity.this::loadAdMobRewardedAd);
+                runOnUiThread(() -> {
+                    if (admobInitialized) loadAdMobRewardedAd();
+                });
             }
         }
 
@@ -547,10 +618,17 @@ public class MainActivity extends AppCompatActivity {
         }
 
         @JavascriptInterface
+        public String getAdDiagnostics() {
+            return "AdMob=" + lastAdMobError + " | Unity=" + lastUnityError;
+        }
+
+        @JavascriptInterface
         public void load(String adUnitId) {
             runOnUiThread(() -> {
-                if (admobRewardedAd == null) loadAdMobRewardedAd();
-                if (admobInterstitialAd == null) loadAdMobInterstitialAd();
+                if (admobInitialized) {
+                    if (admobRewardedAd == null) loadAdMobRewardedAd();
+                    if (admobInterstitialAd == null) loadAdMobInterstitialAd();
+                }
                 if (adUnitId != null && !adUnitId.isEmpty()) {
                     loadUnityPlacement(adUnitId);
                 }
@@ -675,7 +753,7 @@ public class MainActivity extends AppCompatActivity {
 
                 // 4. Request fresh load from both networks and wait up to 3.5s before falling back to in-game video overlay
                 pendingShowPlacementId = unit;
-                if (!isLoadingRewarded) {
+                if (admobInitialized && !isLoadingRewarded) {
                     loadAdMobRewardedAd();
                 }
                 preloadAllUnityPlacements();
