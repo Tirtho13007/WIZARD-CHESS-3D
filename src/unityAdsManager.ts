@@ -34,6 +34,7 @@ export interface ActiveUnityAdRequest {
   durationSec: number;
   onComplete: () => void;
   onCancel?: () => void;
+  onStatusToast?: (msg: string) => void;
 }
 
 interface NativeAndroidUnityBridge {
@@ -60,6 +61,7 @@ declare global {
     // AdMob / Unity Ads load callbacks
     onUnityAdsAdLoaded?: (adUnitId: string) => void;
     onUnityAdsFailedToLoad?: (adUnitId: string, error: string, message: string) => void;
+    onNativeAdLoading?: (adUnitId: string) => void;
     // AdMob / Unity Ads show callbacks
     onUnityAdsShowStart?: (adUnitId: string) => void;
     onUnityAdsShowClick?: (adUnitId: string) => void;
@@ -87,6 +89,10 @@ function getNativeBridge(): NativeAndroidUnityBridge | undefined {
     window.Android ||
     window.unityAdsBridge
   );
+}
+
+export function isNativeAndroidApp(): boolean {
+  return Boolean(getNativeBridge());
 }
 
 /**
@@ -126,7 +132,7 @@ export function initUnityAdsBridge(): void {
       nativeBridge.initialize(UNITY_ADS_CONFIG.gameId, UNITY_ADS_CONFIG.testMode);
       nativeBridge.load?.(UNITY_ADS_CONFIG.placements.rewarded);
     } catch {
-      // Fallback to Rewarded Video Player when running in standard browser
+      // Standard web browser environment
     }
   }
 }
@@ -134,28 +140,19 @@ export function initUnityAdsBridge(): void {
 /**
  * Displays a Rewarded Video Ad via Native Android Google AdMob (`ca-app-pub-1151788930010230/6643060191`)
  * or Unity Ads (`BP_Rewarded_Android`).
- * If no native ad fill is ready (e.g. on Emulator or before Play Store verification),
- * automatically triggers `onFallbackToOverlay` so the built-in 5-second Rewarded Video Ad
- * plays and the user ALWAYS receives their Hint or Undo reward.
+ * On Native Android APK, NEVER opens the HTML fallback screen—always plays a real native video ad.
  */
 export function tryShowNativeUnityAd(
   request: ActiveUnityAdRequest,
-  onFallbackToOverlay: () => void
+  onWebBrowserFallback: () => void
 ): boolean {
   if (typeof window === 'undefined') return false;
   const nativeBridge = getNativeBridge();
-  if (!nativeBridge) return false;
+  if (!nativeBridge) {
+    return false;
+  }
 
   try {
-    // Check if native AdMob or Unity Ad is actually loaded & ready before calling show()
-    if (typeof nativeBridge.isAdReady === 'function') {
-      const ready = nativeBridge.isAdReady(request.placementId);
-      if (!ready) {
-        nativeBridge.load?.(request.placementId);
-        return false; // Let caller immediately open the 5-second Rewarded Video Overlay
-      }
-    }
-
     let handled = false;
     const finishOnce = (action: () => void) => {
       if (handled) return;
@@ -163,19 +160,29 @@ export function tryShowNativeUnityAd(
       action();
     };
 
+    window.onNativeAdLoading = () => {
+      request.onStatusToast?.('Loading Video Ad...');
+    };
+
     const handleShowComplete = (
       _adUnitId: string,
-      state: 'COMPLETED' | 'SKIPPED' | 'ERROR'
+      state: 'COMPLETED' | 'SKIPPED' | 'ERROR',
+      message?: string
     ) => {
       nativeBridge.load?.(request.placementId);
 
       if (state === 'COMPLETED') {
         finishOnce(() => request.onComplete());
       } else if (state === 'ERROR') {
-        // Native ad failed to display (e.g., NO_FILL on emulator) -> fallback to in-game video ad!
-        finishOnce(() => onFallbackToOverlay());
+        finishOnce(() => {
+          request.onStatusToast?.(message || 'Video ad is still loading. Please try again in a few seconds.');
+          request.onCancel?.();
+        });
       } else {
-        finishOnce(() => request.onCancel?.());
+        finishOnce(() => {
+          request.onStatusToast?.('Watch the full video ad to unlock your reward.');
+          request.onCancel?.();
+        });
       }
     };
 
@@ -183,11 +190,10 @@ export function tryShowNativeUnityAd(
       handleShowComplete(adUnitId, state);
     window.onUnityAdsDidFinish = (adUnitId, state) =>
       handleShowComplete(adUnitId, state);
-    window.onUnityAdsShowFailure = (adUnitId) =>
-      handleShowComplete(adUnitId, 'ERROR');
-    window.onUnityAdsFallbackToOverlay = () => {
-      nativeBridge.load?.(request.placementId);
-      finishOnce(() => onFallbackToOverlay());
+    window.onUnityAdsShowFailure = (adUnitId, _error, message) =>
+      handleShowComplete(adUnitId, 'ERROR', message);
+    window.onUnityAdsFallbackToOverlay = (adUnitId) => {
+      handleShowComplete(adUnitId, 'ERROR', 'Video ad is loading, please try again in a moment.');
     };
 
     if (nativeBridge.showRewardedAd) {
@@ -199,10 +205,11 @@ export function tryShowNativeUnityAd(
       return true;
     }
   } catch {
-    return false;
+    onWebBrowserFallback();
+    return true;
   }
 
-  return false;
+  return true;
 }
 
 /**

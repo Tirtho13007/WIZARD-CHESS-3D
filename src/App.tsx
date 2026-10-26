@@ -258,12 +258,17 @@ export default function App() {
     setGameOver(false);
   };
 
-  // Show Native AdMob / Unity Rewarded Ad if loaded, otherwise automatically open Full-Screen 5s Rewarded Video Player
+  // Show Native AdMob / Unity Rewarded Video Ad on Android; only use web overlay when testing in a desktop browser
   const launchUnityRewardedAd = (req: ActiveUnityAdRequest) => {
-    const openOverlayFallback = () => {
+    const reqWithToast: ActiveUnityAdRequest = {
+      ...req,
+      onStatusToast: (msg: string) => showToast(msg, 3500),
+    };
+
+    const openWebBrowserFallback = () => {
       getEngineAPI()?.setGamePaused?.(true);
       setActiveAd({
-        ...req,
+        ...reqWithToast,
         onComplete: () => {
           getEngineAPI()?.setGamePaused?.(false);
           req.onComplete();
@@ -275,9 +280,9 @@ export default function App() {
       });
     };
 
-    const handledByNative = tryShowNativeUnityAd(req, openOverlayFallback);
+    const handledByNative = tryShowNativeUnityAd(reqWithToast, openWebBrowserFallback);
     if (!handledByNative) {
-      openOverlayFallback();
+      openWebBrowserFallback();
     }
   };
 

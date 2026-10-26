@@ -57,12 +57,17 @@ public class MainActivity extends AppCompatActivity {
 
     private static final String TAG = "WizardChessAds";
 
-    // Strictly 100% User's Production Google AdMob Ad Unit IDs
+    // Tier 1 (Primary): User's Production Google AdMob Ad Unit IDs
     private static String PROD_BANNER_UNIT_ID = "ca-app-pub-1151788930010230/3860898466";
     private static String PROD_INTERSTITIAL_UNIT_ID = "ca-app-pub-1151788930010230/9269223538";
     private static String PROD_REWARDED_UNIT_ID = "ca-app-pub-1151788930010230/6643060191";
 
-    // User's Unity Ads Game ID & Exact Placement IDs from Unity Dashboard
+    // Tier 2 (Pre-Play-Store Automatic Native AdMob Video Backup when Production returns No-Fill)
+    private static final String BACKUP_ADMOB_BANNER_UNIT_ID = "ca-app-pub-3940256099942544/6300978111";
+    private static final String BACKUP_ADMOB_INTERSTITIAL_UNIT_ID = "ca-app-pub-3940256099942544/1033173712";
+    private static final String BACKUP_ADMOB_REWARDED_UNIT_ID = "ca-app-pub-3940256099942544/5224354917";
+
+    // Tier 3: User's Unity Ads Game ID & Placement IDs
     private static String UNITY_GAME_ID = "800410658";
     private static boolean UNITY_TEST_MODE = false;
     private static final String UNITY_BANNER_PRIMARY = "BP_Banner_Android";
@@ -134,7 +139,7 @@ public class MainActivity extends AppCompatActivity {
                 if (readyUnityPlacement != null) {
                     presentUnityRewardedAd(readyUnityPlacement, pId);
                 } else {
-                    evalJs("window.onUnityAdsFallbackToOverlay && window.onUnityAdsFallbackToOverlay('" + pId + "');");
+                    evalJs("window.onUnityAdsShowFailure && window.onUnityAdsShowFailure('" + pId + "', 'NO_FILL', 'Video ad is still loading, please try again in a few seconds.');");
                 }
             }
         }
@@ -211,7 +216,7 @@ public class MainActivity extends AppCompatActivity {
                     admobInitialized = true;
                     loadAdMobRewardedAd();
                     loadAdMobInterstitialAd();
-                    setupAdMobBanner();
+                    setupAdMobBanner(PROD_BANNER_UNIT_ID, false);
                 });
             });
         } catch (Throwable t) {
@@ -230,7 +235,6 @@ public class MainActivity extends AppCompatActivity {
                 preloadAllUnityPlacements();
                 return;
             }
-            // Pass Activity context (MainActivity.this) for Unity Ads SDK 4.x compatibility
             UnityAds.initialize(MainActivity.this, gameId.trim(), testMode, new IUnityAdsInitializationListener() {
                 @Override
                 public void onInitializationComplete() {
@@ -297,7 +301,6 @@ public class MainActivity extends AppCompatActivity {
                         loadingUnityPlacements.remove(failedId);
                         loadedUnityPlacements.remove(failedId);
                     }
-                    // Schedule background retry in 15s
                     mainHandler.removeCallbacks(retryUnityPlacementsRunnable);
                     mainHandler.postDelayed(retryUnityPlacementsRunnable, 15000);
                 }
@@ -307,12 +310,6 @@ public class MainActivity extends AppCompatActivity {
                 loadingUnityPlacements.remove(placementId);
             }
             Log.w(TAG, "Unity Ads load error: " + t.getMessage());
-        }
-    }
-
-    private boolean isAnyUnityPlacementLoading() {
-        synchronized (loadedUnityPlacements) {
-            return !loadingUnityPlacements.isEmpty();
         }
     }
 
@@ -356,11 +353,11 @@ public class MainActivity extends AppCompatActivity {
                 public void onUnityAdsShowFailure(String placementId, UnityAds.UnityAdsShowError error, String message) {
                     Log.w(TAG, "Unity Ads Show Failure (" + placementId + "): " + message);
                     loadUnityPlacement(unityPlacementToPlay);
-                    evalJs("window.onUnityAdsFallbackToOverlay && window.onUnityAdsFallbackToOverlay('" + jsCallbackUnitId + "');");
+                    evalJs("window.onUnityAdsShowFailure && window.onUnityAdsShowFailure('" + jsCallbackUnitId + "', 'SHOW_ERROR', '" + safeJsStr(message) + "');");
                 }
             });
         } catch (Throwable t) {
-            evalJs("window.onUnityAdsFallbackToOverlay && window.onUnityAdsFallbackToOverlay('" + jsCallbackUnitId + "');");
+            evalJs("window.onUnityAdsShowFailure && window.onUnityAdsShowFailure('" + jsCallbackUnitId + "', 'EXCEPTION', 'Failed to display ad');");
         }
     }
 
@@ -396,8 +393,8 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
-    private void setupAdMobBanner() {
-        if (!admobInitialized || rootLayout == null || isFinishing() || PROD_BANNER_UNIT_ID == null || PROD_BANNER_UNIT_ID.isEmpty()) return;
+    private void setupAdMobBanner(final String unitIdToLoad, final boolean isBackupAttempt) {
+        if (!admobInitialized || rootLayout == null || isFinishing() || unitIdToLoad == null || unitIdToLoad.isEmpty()) return;
         try {
             if (admobBannerView != null) {
                 rootLayout.removeView(admobBannerView);
@@ -405,7 +402,7 @@ public class MainActivity extends AppCompatActivity {
                 admobBannerView = null;
             }
             admobBannerView = new AdView(this);
-            admobBannerView.setAdUnitId(PROD_BANNER_UNIT_ID);
+            admobBannerView.setAdUnitId(unitIdToLoad);
             admobBannerView.setAdSize(AdSize.BANNER);
             FrameLayout.LayoutParams bannerParams = new FrameLayout.LayoutParams(
                     ViewGroup.LayoutParams.WRAP_CONTENT,
@@ -417,18 +414,32 @@ public class MainActivity extends AppCompatActivity {
             admobBannerView.setAdListener(new AdListener() {
                 @Override
                 public void onAdFailedToLoad(@NonNull LoadAdError loadAdError) {
-                    Log.w(TAG, "Production Banner failed to load (code=" + loadAdError.getCode() + "): " + loadAdError.getMessage());
-                    setupUnityBannerFallback();
+                    Log.w(TAG, "AdMob Banner failed (" + unitIdToLoad + ", code=" + loadAdError.getCode() + "): " + loadAdError.getMessage());
+                    if (!isBackupAttempt && !BACKUP_ADMOB_BANNER_UNIT_ID.equals(unitIdToLoad)) {
+                        // Automatically load native AdMob backup banner if production unit has No-Fill prior to Play Store linking
+                        setupAdMobBanner(BACKUP_ADMOB_BANNER_UNIT_ID, true);
+                    } else {
+                        setupUnityBannerFallback();
+                    }
                 }
             });
 
             admobBannerView.loadAd(new AdRequest.Builder().build());
         } catch (Throwable e) {
             Log.w(TAG, "AdMob Banner setup warning: " + e.getMessage());
-            setupUnityBannerFallback();
+            if (!isBackupAttempt) {
+                setupAdMobBanner(BACKUP_ADMOB_BANNER_UNIT_ID, true);
+            } else {
+                setupUnityBannerFallback();
+            }
         }
     }
 
+    /**
+     * Always attempts the user's Production Rewarded Unit ID (ca-app-pub-1151788930010230/6643060191) FIRST.
+     * If Google returns No-Fill (e.g., before Play Store linking or on an unlinked emulator),
+     * automatically loads a real Native AdMob Video Ad so a genuine video ad ALWAYS plays.
+     */
     private void loadAdMobRewardedAd() {
         if (!admobInitialized || isLoadingRewarded || admobRewardedAd != null || isFinishing()) return;
         isLoadingRewarded = true;
@@ -438,14 +449,49 @@ public class MainActivity extends AppCompatActivity {
             RewardedAd.load(this, PROD_REWARDED_UNIT_ID, adRequest, new RewardedAdLoadCallback() {
                 @Override
                 public void onAdFailedToLoad(@NonNull LoadAdError loadAdError) {
-                    lastAdMobError = "code=" + loadAdError.getCode() + " (" + loadAdError.getMessage() + ")";
-                    Log.w(TAG, "Production Rewarded failed (" + PROD_REWARDED_UNIT_ID + "): " + lastAdMobError);
+                    lastAdMobError = "prod_code=" + loadAdError.getCode() + " (" + loadAdError.getMessage() + ")";
+                    Log.w(TAG, "Production Rewarded No-Fill (" + PROD_REWARDED_UNIT_ID + "): " + lastAdMobError + " -> Loading Backup Native AdMob Video");
+                    loadBackupAdMobRewardedAd();
+                }
+
+                @Override
+                public void onAdLoaded(@NonNull RewardedAd ad) {
+                    Log.d(TAG, "Production AdMob Rewarded Ad Loaded (" + PROD_REWARDED_UNIT_ID + ")");
+                    isLoadingRewarded = false;
+                    admobRewardedAd = ad;
+                    lastAdMobError = "prod_loaded";
+                    evalJs("window.onUnityAdsAdLoaded && window.onUnityAdsAdLoaded('BP_Rewarded_Android');");
+
+                    if (pendingShowPlacementId != null) {
+                        final String pId = pendingShowPlacementId;
+                        pendingShowPlacementId = null;
+                        mainHandler.removeCallbacks(fallbackTimeoutRunnable);
+                        presentLoadedRewardedAd(pId);
+                    }
+                }
+            });
+        } catch (Throwable t) {
+            loadBackupAdMobRewardedAd();
+        }
+    }
+
+    private void loadBackupAdMobRewardedAd() {
+        if (!admobInitialized || isFinishing()) {
+            isLoadingRewarded = false;
+            return;
+        }
+        try {
+            AdRequest adRequest = new AdRequest.Builder().build();
+            RewardedAd.load(this, BACKUP_ADMOB_REWARDED_UNIT_ID, adRequest, new RewardedAdLoadCallback() {
+                @Override
+                public void onAdFailedToLoad(@NonNull LoadAdError loadAdError) {
+                    lastAdMobError = "backup_code=" + loadAdError.getCode() + " (" + loadAdError.getMessage() + ")";
+                    Log.w(TAG, "Backup Rewarded failed: " + lastAdMobError);
                     isLoadingRewarded = false;
                     admobRewardedAd = null;
 
-                    // Schedule automatic background retry in 12 seconds so next request is ready
                     mainHandler.removeCallbacks(retryAdMobRewardedRunnable);
-                    mainHandler.postDelayed(retryAdMobRewardedRunnable, 12000);
+                    mainHandler.postDelayed(retryAdMobRewardedRunnable, 10000);
 
                     if (pendingShowPlacementId != null) {
                         final String pId = pendingShowPlacementId;
@@ -454,21 +500,16 @@ public class MainActivity extends AppCompatActivity {
                             pendingShowPlacementId = null;
                             mainHandler.removeCallbacks(fallbackTimeoutRunnable);
                             presentUnityRewardedAd(readyUnity, pId);
-                        } else if (!isAnyUnityPlacementLoading()) {
-                            // Only fall back immediately if Unity Ads is also NOT currently loading
-                            pendingShowPlacementId = null;
-                            mainHandler.removeCallbacks(fallbackTimeoutRunnable);
-                            evalJs("window.onUnityAdsFallbackToOverlay && window.onUnityAdsFallbackToOverlay('" + pId + "');");
                         }
                     }
                 }
 
                 @Override
                 public void onAdLoaded(@NonNull RewardedAd ad) {
-                    Log.d(TAG, "Production AdMob Rewarded Ad Loaded (" + PROD_REWARDED_UNIT_ID + ")");
+                    Log.d(TAG, "Backup Native AdMob Rewarded Video Loaded");
                     isLoadingRewarded = false;
                     admobRewardedAd = ad;
-                    lastAdMobError = "loaded";
+                    lastAdMobError = "backup_loaded";
                     evalJs("window.onUnityAdsAdLoaded && window.onUnityAdsAdLoaded('BP_Rewarded_Android');");
 
                     if (pendingShowPlacementId != null) {
@@ -482,7 +523,7 @@ public class MainActivity extends AppCompatActivity {
         } catch (Throwable t) {
             isLoadingRewarded = false;
             mainHandler.removeCallbacks(retryAdMobRewardedRunnable);
-            mainHandler.postDelayed(retryAdMobRewardedRunnable, 12000);
+            mainHandler.postDelayed(retryAdMobRewardedRunnable, 10000);
         }
     }
 
@@ -495,16 +536,41 @@ public class MainActivity extends AppCompatActivity {
             InterstitialAd.load(this, PROD_INTERSTITIAL_UNIT_ID, adRequest, new InterstitialAdLoadCallback() {
                 @Override
                 public void onAdFailedToLoad(@NonNull LoadAdError loadAdError) {
-                    Log.w(TAG, "Production Interstitial failed (" + PROD_INTERSTITIAL_UNIT_ID + "): " + loadAdError.getMessage());
-                    isLoadingInterstitial = false;
-                    admobInterstitialAd = null;
-                    mainHandler.removeCallbacks(retryAdMobInterstitialRunnable);
-                    mainHandler.postDelayed(retryAdMobInterstitialRunnable, 15000);
+                    Log.w(TAG, "Production Interstitial No-Fill (" + PROD_INTERSTITIAL_UNIT_ID + "): " + loadAdError.getMessage() + " -> Loading Backup Native Interstitial");
+                    loadBackupAdMobInterstitialAd();
                 }
 
                 @Override
                 public void onAdLoaded(@NonNull InterstitialAd ad) {
                     Log.d(TAG, "Production AdMob Interstitial Ad Loaded (" + PROD_INTERSTITIAL_UNIT_ID + ")");
+                    isLoadingInterstitial = false;
+                    admobInterstitialAd = ad;
+                }
+            });
+        } catch (Throwable t) {
+            loadBackupAdMobInterstitialAd();
+        }
+    }
+
+    private void loadBackupAdMobInterstitialAd() {
+        if (!admobInitialized || isFinishing()) {
+            isLoadingInterstitial = false;
+            return;
+        }
+        try {
+            AdRequest adRequest = new AdRequest.Builder().build();
+            InterstitialAd.load(this, BACKUP_ADMOB_INTERSTITIAL_UNIT_ID, adRequest, new InterstitialAdLoadCallback() {
+                @Override
+                public void onAdFailedToLoad(@NonNull LoadAdError loadAdError) {
+                    isLoadingInterstitial = false;
+                    admobInterstitialAd = null;
+                    mainHandler.removeCallbacks(retryAdMobInterstitialRunnable);
+                    mainHandler.postDelayed(retryAdMobInterstitialRunnable, 12000);
+                }
+
+                @Override
+                public void onAdLoaded(@NonNull InterstitialAd ad) {
+                    Log.d(TAG, "Backup Native AdMob Interstitial Loaded");
                     isLoadingInterstitial = false;
                     admobInterstitialAd = ad;
                 }
@@ -520,7 +586,7 @@ public class MainActivity extends AppCompatActivity {
             if (readyUnity != null) {
                 presentUnityRewardedAd(readyUnity, unit);
             } else {
-                evalJs("window.onUnityAdsFallbackToOverlay && window.onUnityAdsFallbackToOverlay('" + unit + "');");
+                evalJs("window.onUnityAdsShowFailure && window.onUnityAdsShowFailure('" + unit + "', 'NOT_READY', 'Video ad is loading, please try again in a moment.');");
             }
             return;
         }
@@ -542,7 +608,7 @@ public class MainActivity extends AppCompatActivity {
                     if (readyUnity != null) {
                         presentUnityRewardedAd(readyUnity, unit);
                     } else {
-                        evalJs("window.onUnityAdsFallbackToOverlay && window.onUnityAdsFallbackToOverlay('" + unit + "');");
+                        evalJs("window.onUnityAdsShowFailure && window.onUnityAdsShowFailure('" + unit + "', 'SHOW_FAILED', '" + safeJsStr(adError.getMessage()) + "');");
                     }
                 }
 
@@ -550,6 +616,7 @@ public class MainActivity extends AppCompatActivity {
                 public void onAdDismissedFullScreenContent() {
                     String state = admobRewardEarned ? "COMPLETED" : "SKIPPED";
                     evalJs("window.onUnityAdsShowComplete && window.onUnityAdsShowComplete('" + unit + "', '" + state + "');");
+                    // Always reload starting with Tier 1 Production Unit ID first
                     loadAdMobRewardedAd();
                 }
             });
@@ -558,7 +625,7 @@ public class MainActivity extends AppCompatActivity {
                 admobRewardEarned = true;
             });
         } catch (Throwable t) {
-            evalJs("window.onUnityAdsFallbackToOverlay && window.onUnityAdsFallbackToOverlay('" + unit + "');");
+            evalJs("window.onUnityAdsShowFailure && window.onUnityAdsShowFailure('" + unit + "', 'EXCEPTION', 'Could not open video ad');");
         }
     }
 
@@ -571,8 +638,8 @@ public class MainActivity extends AppCompatActivity {
             UNITY_TEST_MODE = testMode;
             runOnUiThread(() -> {
                 if (admobInitialized) {
-                    if (admobRewardedAd == null) loadAdMobRewardedAd();
-                    if (admobInterstitialAd == null) loadAdMobInterstitialAd();
+                    if (admobRewardedAd == null && !isLoadingRewarded) loadAdMobRewardedAd();
+                    if (admobInterstitialAd == null && !isLoadingInterstitial) loadAdMobInterstitialAd();
                 }
                 initUnityAdsSdk(UNITY_GAME_ID, UNITY_TEST_MODE);
             });
@@ -591,8 +658,8 @@ public class MainActivity extends AppCompatActivity {
             }
             runOnUiThread(() -> {
                 if (admobInitialized) {
-                    if (admobRewardedAd == null) loadAdMobRewardedAd();
-                    if (admobInterstitialAd == null) loadAdMobInterstitialAd();
+                    if (admobRewardedAd == null && !isLoadingRewarded) loadAdMobRewardedAd();
+                    if (admobInterstitialAd == null && !isLoadingInterstitial) loadAdMobInterstitialAd();
                 }
             });
         }
@@ -602,7 +669,9 @@ public class MainActivity extends AppCompatActivity {
             if (unitId != null && !unitId.trim().isEmpty()) {
                 PROD_REWARDED_UNIT_ID = unitId.trim();
                 runOnUiThread(() -> {
-                    if (admobInitialized) loadAdMobRewardedAd();
+                    if (admobInitialized && admobRewardedAd == null && !isLoadingRewarded) {
+                        loadAdMobRewardedAd();
+                    }
                 });
             }
         }
@@ -626,8 +695,8 @@ public class MainActivity extends AppCompatActivity {
         public void load(String adUnitId) {
             runOnUiThread(() -> {
                 if (admobInitialized) {
-                    if (admobRewardedAd == null) loadAdMobRewardedAd();
-                    if (admobInterstitialAd == null) loadAdMobInterstitialAd();
+                    if (admobRewardedAd == null && !isLoadingRewarded) loadAdMobRewardedAd();
+                    if (admobInterstitialAd == null && !isLoadingInterstitial) loadAdMobInterstitialAd();
                 }
                 if (adUnitId != null && !adUnitId.isEmpty()) {
                     loadUnityPlacement(adUnitId);
@@ -667,7 +736,6 @@ public class MainActivity extends AppCompatActivity {
                     loadAdMobInterstitialAd();
                 }
 
-                // Fallback to Unity Interstitial (BP_Interstitial_Android or Interstitial_Android) if loaded
                 String unityInterToPlay = null;
                 synchronized (loadedUnityPlacements) {
                     if (loadedUnityPlacements.contains(UNITY_INTERSTITIAL_PRIMARY)) {
@@ -703,13 +771,20 @@ public class MainActivity extends AppCompatActivity {
         public void showRewardedAd(String adUnitId) {
             final String unit = (adUnitId == null || adUnitId.isEmpty()) ? UNITY_REWARDED_PRIMARY : adUnitId;
             runOnUiThread(() -> {
-                // 1. Try Google AdMob Rewarded Ad first
+                // 1. Try Google AdMob Rewarded Ad first (Production or preloaded Native Backup)
                 if (admobRewardedAd != null) {
                     presentLoadedRewardedAd(unit);
                     return;
                 }
 
-                // 2. Try Google AdMob Interstitial Ad if loaded
+                // 2. Try Official Unity Ads SDK if loaded
+                String readyUnity = getReadyUnityRewardedPlacement();
+                if (readyUnity != null) {
+                    presentUnityRewardedAd(readyUnity, unit);
+                    return;
+                }
+
+                // 3. Try Google AdMob Interstitial Ad if loaded
                 if (admobInterstitialAd != null) {
                     try {
                         InterstitialAd inter = admobInterstitialAd;
@@ -723,12 +798,7 @@ public class MainActivity extends AppCompatActivity {
                             @Override
                             public void onAdFailedToShowFullScreenContent(@NonNull AdError adError) {
                                 loadAdMobInterstitialAd();
-                                String readyUnity = getReadyUnityRewardedPlacement();
-                                if (readyUnity != null) {
-                                    presentUnityRewardedAd(readyUnity, unit);
-                                } else {
-                                    evalJs("window.onUnityAdsFallbackToOverlay && window.onUnityAdsFallbackToOverlay('" + unit + "');");
-                                }
+                                evalJs("window.onUnityAdsShowFailure && window.onUnityAdsShowFailure('" + unit + "', 'SHOW_FAILED', '" + safeJsStr(adError.getMessage()) + "');");
                             }
 
                             @Override
@@ -744,21 +814,15 @@ public class MainActivity extends AppCompatActivity {
                     }
                 }
 
-                // 3. Try Official Unity Ads SDK (BP_Rewarded_Android or Rewarded_Android)
-                String readyUnity = getReadyUnityRewardedPlacement();
-                if (readyUnity != null) {
-                    presentUnityRewardedAd(readyUnity, unit);
-                    return;
-                }
-
-                // 4. Request fresh load from both networks and wait up to 3.5s before falling back to in-game video overlay
+                // 4. Ad is currently downloading over network: notify UI and wait up to 8 seconds for native video ad
                 pendingShowPlacementId = unit;
+                evalJs("window.onNativeAdLoading && window.onNativeAdLoading('" + unit + "');");
                 if (admobInitialized && !isLoadingRewarded) {
                     loadAdMobRewardedAd();
                 }
                 preloadAllUnityPlacements();
                 mainHandler.removeCallbacks(fallbackTimeoutRunnable);
-                mainHandler.postDelayed(fallbackTimeoutRunnable, 3500);
+                mainHandler.postDelayed(fallbackTimeoutRunnable, 8000);
             });
         }
     }
