@@ -2680,6 +2680,7 @@ export function initWizardChess() {
             if (!attackAnimStarted) {
               attackAnimStarted = true;
               playPieceClip(piece, 'Attack', false, 0.08);
+              window.wizardChessAudio?.playAttackWindup?.();
             }
 
             // Keep any bystanders immediately adjacent to strikePos yielded slightly outward during the weapon swing
@@ -5068,7 +5069,7 @@ export function initWizardChess() {
 
           ctx.fillStyle = '#d4af37';
           ctx.font = 'bold 13px Inter, sans-serif';
-          ctx.fillText('WIZARD CHESS 3D', 26, 42);
+          ctx.fillText('Arcane Chess 3D', 26, 42);
 
           const turnStr = document.getElementById('turn-text')?.textContent || '';
           const modeStr = document.getElementById('mode-badge')?.textContent || '';

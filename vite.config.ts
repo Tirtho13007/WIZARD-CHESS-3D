@@ -28,8 +28,8 @@ export default defineConfig(({ mode }) => {
         ],
         manifest: {
           id: '/',
-          name: 'WIZARD CHESS 3D',
-          short_name: 'WizardChess',
+          name: 'Arcane Chess 3D',
+          short_name: 'Arcane Chess 3D',
           description:
             'Interactive 3D Gothic Cathedral Wizard Chess with sculpted stone pieces, cinematic melee captures, stone shatter physics, and single-player AI.',
           theme_color: '#080a0f',
@@ -93,7 +93,7 @@ export default defineConfig(({ mode }) => {
           ],
           widgets: [
             {
-              name: 'Wizard Chess 3D Quick Match',
+              name: 'Arcane Chess 3D Quick Match',
               description: 'Jump straight into a 3D Gothic Sanctum chess duel.',
               tag: 'wizard-chess-quick-match',
               ms_ac_template: '/widget-template.json',
@@ -103,7 +103,7 @@ export default defineConfig(({ mode }) => {
                 {
                   src: '/screenshot-wide.png',
                   sizes: '1280x720',
-                  label: 'Wizard Chess 3D Widget Preview',
+                  label: 'Arcane Chess 3D Widget Preview',
                 },
               ],
               icons: [
@@ -142,14 +142,14 @@ export default defineConfig(({ mode }) => {
               sizes: '1280x720',
               type: 'image/png',
               form_factor: 'wide',
-              label: 'Wizard Chess 3D Gothic Cathedral Board View',
+              label: 'Arcane Chess 3D Gothic Cathedral Board View',
             },
             {
               src: '/screenshot-narrow.png',
               sizes: '720x1280',
               type: 'image/png',
               form_factor: 'narrow',
-              label: 'Wizard Chess 3D Mobile Gameplay View',
+              label: 'Arcane Chess 3D Mobile Gameplay View',
             },
           ],
           shortcuts: [

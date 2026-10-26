@@ -319,6 +319,7 @@ export default function App() {
     tryLockLandscape();
     resetStopwatch();
     setMatchStarted(true);
+    soundAndHaptics.setMatchAmbienceActive(true);
     setPauseModalOpen(false);
     setSettingsOnlyModal(false);
     setActiveCamPreset('player');
@@ -356,6 +357,7 @@ export default function App() {
 
   const handleReturnToMainMenu = () => {
     soundAndHaptics.playButtonClick();
+    soundAndHaptics.setMatchAmbienceActive(false);
     setPauseModalOpen(false);
     setSettingsOnlyModal(false);
     setMatchStarted(false);
@@ -458,6 +460,15 @@ export default function App() {
     }
   };
 
+  const handleVolumeChange = (newVolume: number) => {
+    const clamped = Math.max(0, Math.min(100, newVolume));
+    const next = soundAndHaptics.updateSettings({
+      soundVolume: clamped,
+      soundEnabled: clamped > 0 ? true : audioSettings.soundEnabled,
+    });
+    setAudioSettings(next);
+  };
+
   const handleToggleHaptics = () => {
     const next = soundAndHaptics.updateSettings({
       hapticsEnabled: !audioSettings.hapticsEnabled,
@@ -467,6 +478,14 @@ export default function App() {
       soundAndHaptics.vibrate([25, 30, 40]);
     }
   };
+
+  useEffect(() => {
+    soundAndHaptics.setMatchAmbienceActive(matchStarted);
+  }, [matchStarted]);
+
+  useEffect(() => {
+    soundAndHaptics.setAmbienceOverlayPaused(Boolean(activeAd));
+  }, [activeAd]);
 
   const handleDifficultyChangeInSettings = (lvl: AIDifficultyLevel) => {
     soundAndHaptics.playButtonClick();
@@ -489,7 +508,13 @@ export default function App() {
       className={forceRotate90 ? 'force-landscape-rotate' : ''}
     >
       <div id="loading-overlay">
-        <div className="loader-title">WIZARD CHESS 3D</div>
+        <img
+          src="/pwa-192x192.png"
+          alt="Arcane Chess 3D Icon"
+          className="loader-app-icon"
+          referrerPolicy="no-referrer"
+        />
+        <div className="loader-title">Arcane Chess 3D</div>
         <div className="loader-bar-wrap">
           <div className="loader-bar" id="loader-bar"></div>
         </div>
@@ -540,8 +565,13 @@ export default function App() {
             {/* Clean Header: Title + Settings Gear */}
             <div className="minimal-start-header">
               <div className="minimal-brand-row">
-                <span className="minimal-crown-icon">♔</span>
-                <h1 className="minimal-game-title">WIZARD CHESS 3D</h1>
+                <img
+                  src="/pwa-192x192.png"
+                  alt="Arcane Chess 3D Dark Wizard Icon"
+                  className="minimal-brand-app-icon"
+                  referrerPolicy="no-referrer"
+                />
+                <h1 className="minimal-game-title">Arcane Chess 3D</h1>
               </div>
               <button
                 type="button"
@@ -915,6 +945,29 @@ export default function App() {
                 >
                   {audioSettings.hapticsEnabled ? '📳 Haptic: ON' : '📴 Haptic: OFF'}
                 </button>
+              </div>
+
+              {/* Dynamic Volume Slider (Scales Gregorian Chanting, Cathedral Echoes & SFX) */}
+              <div className="cathedral-volume-control">
+                <div className="cathedral-volume-header">
+                  <span className="cathedral-volume-label">
+                    🏛 Cathedral Chant &amp; SFX Volume
+                  </span>
+                  <span className="cathedral-volume-value">
+                    {audioSettings.soundEnabled ? `${audioSettings.soundVolume}%` : 'Muted'}
+                  </span>
+                </div>
+                <input
+                  type="range"
+                  min={0}
+                  max={100}
+                  step={1}
+                  value={audioSettings.soundEnabled ? audioSettings.soundVolume : 0}
+                  onChange={(e) => handleVolumeChange(Number(e.target.value))}
+                  className="cathedral-volume-slider"
+                  id="slider-sound-volume"
+                  aria-label="Cathedral Chant and Sound Effects Volume"
+                />
               </div>
 
               {matchStarted && (

@@ -94,12 +94,12 @@ export const VantargoLegalModal: React.FC<VantargoLegalModalProps> = ({
               <p>
                 <strong>Vantargo</strong> (&quot;we&quot;, &quot;our&quot;, or &quot;us&quot;) respects your privacy. This
                 Privacy Policy explains how information is handled when you play{' '}
-                <strong>WIZARD CHESS 3D</strong> on Android or web platforms.
+                <strong>Arcane Chess 3D</strong> on Android or web platforms.
               </p>
 
               <h3>1. Personal Data We Do Not Collect</h3>
               <p>
-                WIZARD CHESS 3D does not require user registration or login. We do not collect,
+                Arcane Chess 3D does not require user registration or login. We do not collect,
                 store, or share your personal name, phone number, contacts, camera, microphone, or
                 precise GPS location.
               </p>
@@ -113,7 +113,7 @@ export const VantargoLegalModal: React.FC<VantargoLegalModalProps> = ({
 
               <h3>3. Third-Party Advertising (Google AdMob)</h3>
               <p>
-                WIZARD CHESS 3D displays Banner, Interstitial, and Rewarded Video advertisements
+                Arcane Chess 3D displays Banner, Interstitial, and Rewarded Video advertisements
                 (used to unlock optional in-game features such as <em>Undo Move</em> and{' '}
                 <em>Best Move Hint</em>) via <strong>Google AdMob</strong>. Google AdMob may
                 automatically collect and process:
@@ -156,14 +156,14 @@ export const VantargoLegalModal: React.FC<VantargoLegalModalProps> = ({
                 Last Updated: October 26, 2026 · Company: <strong>Vantargo</strong>
               </p>
               <p>
-                By installing, accessing, or playing <strong>WIZARD CHESS 3D</strong>, you agree to
+                By installing, accessing, or playing <strong>Arcane Chess 3D</strong>, you agree to
                 these Terms &amp; Conditions established by <strong>Vantargo</strong>.
               </p>
 
               <h3>1. License to Play</h3>
               <p>
                 <strong>Vantargo</strong> grants you a personal, non-exclusive, non-transferable,
-                revocable license to use WIZARD CHESS 3D strictly for personal, non-commercial
+                revocable license to use Arcane Chess 3D strictly for personal, non-commercial
                 entertainment.
               </p>
 
@@ -171,7 +171,7 @@ export const VantargoLegalModal: React.FC<VantargoLegalModalProps> = ({
               <p>
                 All 3D cathedral environments, sculpted chess statues, combat animations, user
                 interface designs, audio synthesis, source code, and trademarks associated with{' '}
-                <strong>WIZARD CHESS 3D</strong> are owned by or licensed to{' '}
+                <strong>Arcane Chess 3D</strong> are owned by or licensed to{' '}
                 <strong>Vantargo</strong>. You may not reverse-engineer, decompile, or redistribute
                 the application APK/AAB.
               </p>
@@ -186,14 +186,14 @@ export const VantargoLegalModal: React.FC<VantargoLegalModalProps> = ({
 
               <h3>4. Disclaimer of Warranties &amp; Liability</h3>
               <p>
-                WIZARD CHESS 3D is provided on an &quot;AS IS&quot; and &quot;AS AVAILABLE&quot; basis.{' '}
+                Arcane Chess 3D is provided on an &quot;AS IS&quot; and &quot;AS AVAILABLE&quot; basis.{' '}
                 <strong>Vantargo</strong> shall not be liable for any indirect, incidental, or
                 consequential damages arising from your use of the game.
               </p>
 
               <h3>5. Contact Information</h3>
               <p>
-                For support or legal inquiries regarding WIZARD CHESS 3D, contact{' '}
+                For support or legal inquiries regarding Arcane Chess 3D, contact{' '}
                 <strong>Vantargo</strong> at:{' '}
                 <span className="vantargo-highlight-text">
                   hello.mahbuburrahman1@gmail.com
@@ -207,7 +207,7 @@ export const VantargoLegalModal: React.FC<VantargoLegalModalProps> = ({
               <div className="vantargo-about-hero">
                 <div className="vantargo-about-crest">♔</div>
                 <div>
-                  <h3 className="vantargo-about-game">WIZARD CHESS 3D</h3>
+                  <h3 className="vantargo-about-game">Arcane Chess 3D</h3>
                   <p className="vantargo-about-sub">
                     Developed &amp; Published by <strong>Vantargo</strong> · Version 1.3.0
                   </p>
@@ -227,7 +227,7 @@ export const VantargoLegalModal: React.FC<VantargoLegalModalProps> = ({
                 </div>
                 <div className="vantargo-info-item">
                   <span className="vantargo-info-label">Application</span>
-                  <span className="vantargo-info-val">WIZARD CHESS 3D</span>
+                  <span className="vantargo-info-val">Arcane Chess 3D</span>
                 </div>
                 <div className="vantargo-info-item">
                   <span className="vantargo-info-label">Package ID</span>

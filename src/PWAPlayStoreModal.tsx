@@ -45,7 +45,7 @@ export const PWAInstallButton: React.FC<PWAInstallButtonProps> = ({
           className="hud-btn primary pwa-hud-btn"
           id="btn-pwa-install"
           onClick={handleInstallClick}
-          title="Install WIZARD CHESS 3D"
+          title="Install Arcane Chess 3D"
         >
           Install App
         </button>
@@ -60,7 +60,7 @@ export const PWAInstallButton: React.FC<PWAInstallButtonProps> = ({
             if (onActionComplete) onActionComplete();
             setShowIOSGuide(true);
           }}
-          title="Install WIZARD CHESS 3D on iOS"
+          title="Install Arcane Chess 3D on iOS"
         >
           Install on iOS
         </button>
@@ -77,7 +77,7 @@ export const PWAInstallButton: React.FC<PWAInstallButtonProps> = ({
           <div className="pwa-modal-card" onClick={(e) => e.stopPropagation()}>
             <div className="pwa-modal-header">
               <span className="pwa-modal-title" id="ios-guide-title">
-                Install WIZARD CHESS 3D
+                Install Arcane Chess 3D
               </span>
               <button
                 type="button"
@@ -91,7 +91,7 @@ export const PWAInstallButton: React.FC<PWAInstallButtonProps> = ({
               <p className="pwa-modal-desc">
                 1. Tap the <strong>Share</strong> icon in Safari&apos;s toolbar.<br />
                 2. Scroll down and select <strong>Add to Home Screen</strong>.<br />
-                3. Launch <strong>WIZARD CHESS 3D</strong> in full-screen mode.
+                3. Launch <strong>Arcane Chess 3D</strong> in full-screen mode.
               </p>
               <button
                 type="button"
