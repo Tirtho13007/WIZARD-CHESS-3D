@@ -3,9 +3,12 @@
 export const UNITY_ADS_CONFIG = {
   appName: 'WIZARD CHESS 3D',
   gameId: '800410658',
+  unityAppId: '30c9f0ab-88d5-488a-9598-95a52bc2fab0',
   organizationCoreId: '18968528237818',
   testMode: false,
   placements: {
+    banner: 'BP_Banner_Android',
+    interstitial: 'BP_Interstitial_Android',
     rewarded: 'BP_Rewarded_Android',
   },
   admob: {

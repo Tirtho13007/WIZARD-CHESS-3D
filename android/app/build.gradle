@@ -50,4 +50,6 @@ dependencies {
     implementation 'org.jetbrains.kotlin:kotlin-stdlib:1.9.22'
     // Official Google AdMob SDK (Banner, Interstitial, Rewarded Video Ads)
     implementation 'com.google.android.gms:play-services-ads:23.0.0'
+    // Official Unity Ads SDK 4.x (Dual-Network Mediation / Waterfall with AdMob)
+    implementation 'com.unity3d.ads:unity-ads:4.12.2'
 }
