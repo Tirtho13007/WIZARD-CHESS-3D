@@ -1,4 +1,4 @@
-package com.wizardchess3d.sanctum;
+package com.arcanechess3d.sanctum;
 
 import android.annotation.SuppressLint;
 import android.content.pm.ActivityInfo;
@@ -55,7 +55,7 @@ import java.util.Set;
 
 public class MainActivity extends AppCompatActivity {
 
-    private static final String TAG = "WizardChessAds";
+    private static final String TAG = "ArcaneChessAds";
 
     // Tier 1 (Primary): User's Production Google AdMob Ad Unit IDs
     private static String PROD_BANNER_UNIT_ID = "ca-app-pub-1151788930010230/3860898466";
@@ -930,7 +930,7 @@ public class MainActivity extends AppCompatActivity {
     }
 
     @Override
-    public void onWindowFocusChanged(boolean hasFocus) {
+    protected void onWindowFocusChanged(boolean hasFocus) {
         super.onWindowFocusChanged(hasFocus);
         if (hasFocus) {
             hideSystemUI();
