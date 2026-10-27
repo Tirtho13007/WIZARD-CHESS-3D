@@ -24,12 +24,6 @@
             android:name="com.google.android.gms.ads.APPLICATION_ID"
             android:value="ca-app-pub-1151788930010230~5173980133" />
 
-        <!-- Resolve AD_SERVICES_CONFIG manifest merger conflict between AdMob SDK 23.x and Unity Ads SDK 4.12.x -->
-        <property
-            android:name="android.adservices.AD_SERVICES_CONFIG"
-            android:resource="@xml/gma_ad_services_config"
-            tools:replace="android:resource" />
-
         <activity
             android:name=".MainActivity"
             android:configChanges="orientation|screenSize|screenLayout|keyboardHidden|uiMode"

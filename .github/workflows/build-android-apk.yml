@@ -48,12 +48,12 @@ jobs:
           rm -f release-key.jks
           keytool -genkeypair -v \
             -keystore release-key.jks \
-            -alias arcanechess \
+            -alias wizardchess \
             -keyalg RSA \
             -keysize 2048 \
             -validity 10000 \
-            -storepass arcanechess123 \
-            -keypass arcanechess123 \
+            -storepass wizardchess123 \
+            -keypass wizardchess123 \
             -dname "CN=Arcane Chess 3D, OU=Games, O=Vantargo, L=Dhaka, S=Dhaka, C=BD"
 
       - name: Build Signed Native Android APK & Play Store AAB
