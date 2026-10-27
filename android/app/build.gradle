@@ -2,6 +2,10 @@ plugins {
     id 'com.android.application'
 }
 
+// Clean up any legacy package directory or temporary chat screenshots before Gradle evaluates sources
+project.delete(project.file("src/main/java/com/wizardchess3d"))
+project.delete(project.file("src/main/assets/assets/aistudio"))
+
 android {
     namespace 'com.arcanechess3d.sanctum'
     compileSdk 34
@@ -21,10 +25,37 @@ android {
 
     signingConfigs {
         release {
-            storeFile file("release-key.jks")
-            storePassword System.getenv("KEYSTORE_PASSWORD") ?: "wizardchess123"
-            keyAlias System.getenv("KEY_ALIAS") ?: "wizardchess"
-            keyPassword System.getenv("KEY_PASSWORD") ?: "wizardchess123"
+            def ksFile = project.file("release-key.jks")
+            def resolvedPass = System.getenv("KEYSTORE_PASSWORD") ?: "wizardchess123"
+            def resolvedAlias = System.getenv("KEY_ALIAS") ?: "wizardchess"
+            if (ksFile.exists()) {
+                def candidates = [
+                    ["wizardchess123", "wizardchess"],
+                    ["arcanechess123", "arcanechess"]
+                ]
+                for (cand in candidates) {
+                    java.io.FileInputStream fis = null
+                    try {
+                        def ks = java.security.KeyStore.getInstance(java.security.KeyStore.getDefaultType())
+                        fis = new java.io.FileInputStream(ksFile)
+                        ks.load(fis, cand[0].toCharArray())
+                        if (ks.containsAlias(cand[1])) {
+                            resolvedPass = cand[0]
+                            resolvedAlias = cand[1]
+                            break
+                        }
+                    } catch (Throwable ignored) {
+                    } finally {
+                        if (fis != null) {
+                            try { fis.close() } catch (Throwable ignored) {}
+                        }
+                    }
+                }
+            }
+            storeFile ksFile
+            storePassword resolvedPass
+            keyAlias resolvedAlias
+            keyPassword System.getenv("KEY_PASSWORD") ?: resolvedPass
         }
     }
 
@@ -46,12 +77,6 @@ android {
     lint {
         checkReleaseBuilds false
         abortOnError false
-    }
-
-    packaging {
-        resources {
-            excludes += ['/META-INF/{AL2.0,LGPL2.1}', 'META-INF/DEPENDENCIES', 'META-INF/*.kotlin_module']
-        }
     }
 }
 

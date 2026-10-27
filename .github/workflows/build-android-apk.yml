@@ -59,7 +59,16 @@ jobs:
       - name: Build Signed Native Android APK & Play Store AAB
         working-directory: ./android
         run: |
-          gradle assembleRelease bundleRelease --no-daemon --stacktrace
+          set -o pipefail
+          gradle assembleRelease bundleRelease --no-daemon --stacktrace 2>&1 | tee gradle-build.log || {
+            echo "### ❌ Gradle Build Failure Log" >> $GITHUB_STEP_SUMMARY
+            echo '```text' >> $GITHUB_STEP_SUMMARY
+            grep -E -A 25 "(FAILURE:|What went wrong:|Execution failed|error:)" gradle-build.log | head -n 60 >> $GITHUB_STEP_SUMMARY || tail -n 50 gradle-build.log >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+            ERR_LINE=$(grep -E -A 4 "(What went wrong:|Execution failed|error:)" gradle-build.log | tr '\n' ' ' | head -c 350)
+            echo "::error title=Gradle Build Error::${ERR_LINE}"
+            exit 1
+          }
 
       - name: Upload Ready-to-Install Android APK
         uses: actions/upload-artifact@v4

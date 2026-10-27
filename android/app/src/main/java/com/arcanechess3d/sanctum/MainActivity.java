@@ -1,5 +1,6 @@
 package com.arcanechess3d.sanctum;
 
+// Arcane Chess 3D - Native Android MainActivity (com.arcanechess3d.sanctum)
 import android.annotation.SuppressLint;
 import android.content.pm.ActivityInfo;
 import android.graphics.Color;
