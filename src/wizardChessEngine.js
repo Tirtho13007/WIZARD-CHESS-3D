@@ -884,7 +884,19 @@ export function initWizardChess() {
     const boardRaycastGroup = new THREE.Group();
     const squareHighlightsGroup = new THREE.Group();
     scene.add(squareHighlightsGroup);
+    const checkAlertGroup = new THREE.Group();
+    scene.add(checkAlertGroup);
     const boardSquareMeshes = [];
+    const boardBorderMeshes = [];
+    const checkCourtPulseMats = [];
+    const checkBorderMat = new THREE.MeshStandardMaterial({
+      color: 0xe6192e,
+      roughness: 0.22,
+      metalness: 0.55,
+      emissive: 0xb80a1b,
+      emissiveIntensity: 0.95,
+      envMapIntensity: 1.8
+    });
 
     function buildChessBoardGrid() {
       const tileH = 0.036;
@@ -948,11 +960,13 @@ export function initWizardChess() {
         hBar.position.set(0, BOARD_SURFACE_Y - rimH * 0.45, s * (halfB + rimW * 0.5));
         hBar.receiveShadow = true;
         boardGroup.add(hBar);
+        boardBorderMeshes.push(hBar);
 
         const vBar = new THREE.Mesh(vertGeo, goldTrimMat);
         vBar.position.set(s * (halfB + rimW * 0.5), BOARD_SURFACE_Y - rimH * 0.45, 0);
         vBar.receiveShadow = true;
         boardGroup.add(vBar);
+        boardBorderMeshes.push(vBar);
       }
     }
 
@@ -1753,7 +1767,16 @@ export function initWizardChess() {
       checkmateState.phase = 'none';
       const overlay = document.getElementById('checkmate-overlay');
       if (overlay) {
-        overlay.classList.remove('visible');
+        overlay.classList.remove(
+          'visible',
+          'victory-flair-active',
+          'defeat-banner-active',
+          'draw-banner-active'
+        );
+      }
+      const replayBtn = document.getElementById('btn-checkmate-replay');
+      if (replayBtn) {
+        replayBtn.style.display = '';
       }
     }
 
@@ -2107,6 +2130,110 @@ export function initWizardChess() {
           dotMesh.position.set(pos.x, BOARD_SURFACE_Y + 0.01, pos.z);
           squareHighlightsGroup.add(dotMesh);
         }
+      }
+    }
+
+    // =========================================================================
+    // Red Court Check Alert ("Raja Check Hoile Red Hobe Court Ta")
+    // =========================================================================
+    const checkCourtWashGeo = new THREE.PlaneGeometry(8 * BOARD_SQ_SIZE, 8 * BOARD_SQ_SIZE);
+    checkCourtWashGeo.rotateX(-Math.PI / 2);
+    const checkKingTileGeo = new THREE.PlaneGeometry(BOARD_SQ_SIZE * 0.96, BOARD_SQ_SIZE * 0.96);
+    checkKingTileGeo.rotateX(-Math.PI / 2);
+    const checkOuterRingGeo = new THREE.RingGeometry(0.125, 0.168, 36);
+    checkOuterRingGeo.rotateX(-Math.PI / 2);
+    const checkInnerRingGeo = new THREE.RingGeometry(0.082, 0.112, 36);
+    checkInnerRingGeo.rotateX(-Math.PI / 2);
+
+    function updateCheckCourtAlert(inCheck, checkedColor = currentTurn) {
+      while (checkAlertGroup.children.length > 0) {
+        checkAlertGroup.remove(checkAlertGroup.children[0]);
+      }
+      checkCourtPulseMats.length = 0;
+
+      const statusPill = document.getElementById('status-pill');
+      if (statusPill) {
+        statusPill.classList.toggle('in-check-alert', Boolean(inCheck));
+      }
+
+      if (!inCheck) {
+        for (const bar of boardBorderMeshes) {
+          bar.material = goldTrimMat;
+        }
+        return;
+      }
+
+      // Turn the entire 8x8 court frame crimson red
+      for (const bar of boardBorderMeshes) {
+        bar.material = checkBorderMat;
+      }
+
+      // Crimson red wash across the 8x8 court surface
+      const courtWashMat = new THREE.MeshBasicMaterial({
+        color: 0xd91424,
+        transparent: true,
+        opacity: 0.22,
+        depthWrite: false,
+        blending: THREE.AdditiveBlending,
+        side: THREE.DoubleSide
+      });
+      courtWashMat.userData = { baseOpacity: 0.22, pulseAmp: 0.09 };
+      checkCourtPulseMats.push(courtWashMat);
+      const courtWashMesh = new THREE.Mesh(checkCourtWashGeo, courtWashMat);
+      courtWashMesh.position.set(0, BOARD_SURFACE_Y + 0.004, 0);
+      checkAlertGroup.add(courtWashMesh);
+
+      // Find the checked King's square and highlight it with a glowing crimson square & rings
+      let kingR = -1;
+      let kingC = -1;
+      for (let r = 0; r < 8; r++) {
+        for (let c = 0; c < 8; c++) {
+          const p = boardState[r][c];
+          if (p && p.type === 'king' && p.color === checkedColor) {
+            kingR = r;
+            kingC = c;
+            break;
+          }
+        }
+      }
+
+      if (kingR !== -1 && kingC !== -1) {
+        const kPos = boardToWorld(kingR, kingC);
+        const kingTileMat = new THREE.MeshBasicMaterial({
+          color: 0xff1e2e,
+          transparent: true,
+          opacity: 0.56,
+          depthWrite: false,
+          blending: THREE.AdditiveBlending,
+          side: THREE.DoubleSide
+        });
+        kingTileMat.userData = { baseOpacity: 0.56, pulseAmp: 0.22 };
+        checkCourtPulseMats.push(kingTileMat);
+        const kingTileMesh = new THREE.Mesh(checkKingTileGeo, kingTileMat);
+        kingTileMesh.position.set(kPos.x, BOARD_SURFACE_Y + 0.008, kPos.z);
+        checkAlertGroup.add(kingTileMesh);
+
+        const outerMat = new THREE.MeshBasicMaterial({
+          color: 0xff2a3b,
+          transparent: true,
+          opacity: 0.95,
+          side: THREE.DoubleSide
+        });
+        outerMat.userData = { baseOpacity: 0.9, pulseAmp: 0.1 };
+        checkCourtPulseMats.push(outerMat);
+        const outerMesh = new THREE.Mesh(checkOuterRingGeo, outerMat);
+        outerMesh.position.set(kPos.x, BOARD_SURFACE_Y + 0.015, kPos.z);
+        checkAlertGroup.add(outerMesh);
+
+        const innerMat = new THREE.MeshBasicMaterial({
+          color: 0xffb703,
+          transparent: true,
+          opacity: 0.9,
+          side: THREE.DoubleSide
+        });
+        const innerMesh = new THREE.Mesh(checkInnerRingGeo, innerMat);
+        innerMesh.position.set(kPos.x, BOARD_SURFACE_Y + 0.016, kPos.z);
+        checkAlertGroup.add(innerMesh);
       }
     }
 
@@ -3785,34 +3912,199 @@ export function initWizardChess() {
       impactFlashLight.intensity = 6.2;
     }
 
+    // =========================================================================
+    // Celebratory 3D Golden & Emerald Victory Flair Burst
+    // =========================================================================
+    const victoryFlairGoldMat = new THREE.MeshBasicMaterial({
+      color: 0xffe066,
+      transparent: true,
+      opacity: 0.95
+    });
+    const victoryFlairEmeraldMat = new THREE.MeshBasicMaterial({
+      color: 0x38ef7d,
+      transparent: true,
+      opacity: 0.92
+    });
+
+    function spawnVictoryFlairBurst(winnerColor) {
+      let winKingPos = new THREE.Vector3(0, BOARD_SURFACE_Y, 0);
+      for (let r = 0; r < 8; r++) {
+        for (let c = 0; c < 8; c++) {
+          const p = boardState[r][c];
+          if (p && p.type === 'king' && p.color === winnerColor) {
+            winKingPos = boardToWorld(r, c);
+            break;
+          }
+        }
+      }
+
+      const flairCount = isMobileDevice ? 28 : 42;
+      for (let i = 0; i < flairCount; i++) {
+        const sz = 0.018 + Math.random() * 0.032;
+        const mat = i % 3 === 0 ? victoryFlairEmeraldMat : victoryFlairGoldMat;
+        const spark = new THREE.Mesh(sharedShardGeo, mat);
+        spark.scale.setScalar(sz);
+        const angle = (i / flairCount) * Math.PI * 2 + Math.random() * 0.3;
+        const radius = 0.12 + Math.random() * 0.85;
+        spark.position.set(
+          winKingPos.x + Math.cos(angle) * radius,
+          BOARD_SURFACE_Y + 0.08 + Math.random() * 0.35,
+          winKingPos.z + Math.sin(angle) * radius
+        );
+        scene.add(spark);
+        shatterDebris.push({
+          mesh: spark,
+          baseScale: sz,
+          vel: new THREE.Vector3(
+            Math.cos(angle) * (0.65 + Math.random() * 1.45),
+            1.85 + Math.random() * 2.4,
+            Math.sin(angle) * (0.65 + Math.random() * 1.45)
+          ),
+          rotVel: new THREE.Vector3(
+            Math.random() * 10,
+            Math.random() * 10,
+            Math.random() * 10
+          ),
+          life: 2.35
+        });
+      }
+      impactFlashLight.position.set(winKingPos.x, BOARD_SURFACE_Y + 0.65, winKingPos.z);
+      impactFlashLight.intensity = 7.2;
+    }
+
     function showCheckmateBanner(winnerColor, defeatedColor) {
       const overlay = document.getElementById('checkmate-overlay');
+      const ornamentEl = overlay?.querySelector('.checkmate-ornament');
       const crownEl = document.getElementById('checkmate-crown');
       const titleEl = document.getElementById('checkmate-title');
       const subEl = document.getElementById('checkmate-subtitle');
+      const replayBtn = document.getElementById('btn-checkmate-replay');
 
       const winnerName = winnerColor === 'w' ? 'White' : 'Black';
       const defeatedName = defeatedColor === 'w' ? 'White' : 'Black';
+      const isAiDefeat =
+        !scriptedGameActive && gameMode === 'single' && winnerColor !== playerColor;
 
-      if (crownEl) crownEl.textContent = winnerColor === 'w' ? '♔' : '♚';
-      if (titleEl) titleEl.textContent = 'Checkmate';
-      if (subEl) {
-        subEl.textContent = `${winnerName} Triumphs • The ${defeatedName} King Has Fallen`;
+      if (replayBtn) {
+        replayBtn.style.display = '';
       }
+
+      if (isAiDefeat) {
+        if (ornamentEl) ornamentEl.textContent = '✦   SANCTUM FALLEN   ✦';
+        if (crownEl) crownEl.textContent = '☠';
+        if (titleEl) titleEl.textContent = 'Defeat';
+        if (subEl) {
+          subEl.textContent = `AI Triumphs • Your ${defeatedName} King Has Fallen`;
+        }
+      } else {
+        if (ornamentEl) {
+          ornamentEl.textContent =
+            gameMode === 'single' && !scriptedGameActive
+              ? '✦   ROYAL VICTORY FLAIR   ✦'
+              : '✦   SANCTUM JUDGMENT   ✦';
+        }
+        if (crownEl) crownEl.textContent = winnerColor === 'w' ? '♔' : '♚';
+        if (titleEl) {
+          titleEl.textContent =
+            gameMode === 'single' && !scriptedGameActive ? 'Victory! • Checkmate' : 'Checkmate';
+        }
+        if (subEl) {
+          subEl.textContent = `${winnerName} Triumphs • The ${defeatedName} King Has Fallen`;
+        }
+      }
+
       if (overlay) {
-        overlay.classList.add('visible');
+        overlay.classList.remove(
+          'draw-banner-active',
+          'defeat-banner-active',
+          'victory-flair-active'
+        );
+        overlay.classList.add(
+          'visible',
+          isAiDefeat ? 'defeat-banner-active' : 'victory-flair-active'
+        );
       }
       checkmateState.bannerVisible = true;
       window.dispatchEvent(
         new CustomEvent('wizardchess:checkmate', {
-          detail: { winnerColor, defeatedColor }
+          detail: {
+            winnerColor,
+            defeatedColor,
+            outcome: isAiDefeat ? 'defeat' : 'victory'
+          }
         })
       );
     }
 
+    function isInsufficientMaterial(board = boardState) {
+      const pieces = [];
+      for (let r = 0; r < 8; r++) {
+        for (let c = 0; c < 8; c++) {
+          const p = board[r][c];
+          if (p && p.type !== 'king') {
+            pieces.push(p);
+          }
+        }
+      }
+      if (pieces.length === 0) return true; // King vs King
+      if (
+        pieces.length === 1 &&
+        (pieces[0].type === 'bishop' || pieces[0].type === 'knight')
+      ) {
+        return true; // King + minor piece vs King
+      }
+      return false;
+    }
+
+    function triggerDrawSequence(drawReason = 'Stalemate') {
+      window.wizardChessAudio?.playDrawSound?.();
+      checkmateState.active = true;
+      checkmateState.defeatedColor = null;
+      checkmateState.winnerColor = null;
+      checkmateState.kingFallAngleDeg = 0;
+      checkmateState.phase = 'draw';
+      checkmateState.bannerVisible = true;
+
+      const overlay = document.getElementById('checkmate-overlay');
+      const ornamentEl = overlay?.querySelector('.checkmate-ornament');
+      const crownEl = document.getElementById('checkmate-crown');
+      const titleEl = document.getElementById('checkmate-title');
+      const subEl = document.getElementById('checkmate-subtitle');
+      const replayBtn = document.getElementById('btn-checkmate-replay');
+
+      if (ornamentEl) ornamentEl.textContent = '✦   SANCTUM TRUCE   ✦';
+      if (crownEl) crownEl.textContent = '⚖';
+      if (titleEl) titleEl.textContent = 'Match Drawn';
+      if (subEl) {
+        subEl.textContent = `${drawReason} • Neither Army Prevails`;
+      }
+      if (replayBtn) {
+        replayBtn.style.display = 'none';
+      }
+      if (overlay) {
+        overlay.classList.remove('victory-flair-active', 'defeat-banner-active');
+        overlay.classList.add('visible', 'draw-banner-active');
+      }
+
+      window.dispatchEvent(
+        new CustomEvent('wizardchess:draw', {
+          detail: { reason: drawReason }
+        })
+      );
+      return true;
+    }
+
     function triggerCheckmateSequence(defeatedColor = currentTurn, winnerColor = null) {
       const actualWinner = winnerColor || (defeatedColor === 'w' ? 'b' : 'w');
-      window.wizardChessAudio?.playCheckmateVictory?.();
+      const isAiDefeat =
+        !scriptedGameActive && gameMode === 'single' && actualWinner !== playerColor;
+
+      if (isAiDefeat) {
+        window.wizardChessAudio?.playDefeatSound?.();
+      } else {
+        window.wizardChessAudio?.playWarVictoryHorn?.();
+        spawnVictoryFlairBurst(actualWinner);
+      }
 
       // Find the defeated King on the board
       let kingPiece = null;
@@ -4071,24 +4363,31 @@ export function initWizardChess() {
 
       const legalMoves = getAllLegalMoves(currentTurn);
       const inCheck = isKingInCheck(currentTurn, boardState);
+      const insufficientDraw = !inCheck && isInsufficientMaterial(boardState);
 
-      if (legalMoves.length === 0) {
+      updateCheckCourtAlert(inCheck, currentTurn);
+
+      if (legalMoves.length === 0 || insufficientDraw) {
         gameOver = true;
-        if (inCheck) {
+        if (inCheck && legalMoves.length === 0) {
           const winner = currentTurn === 'w' ? 'Black' : 'White';
           turnText.textContent = `Checkmate — ${winner} Wins`;
           if (!checkmateState.active) {
             triggerCheckmateSequence(currentTurn, currentTurn === 'w' ? 'b' : 'w');
           }
         } else {
-          turnText.textContent = 'Stalemate — Draw';
+          const drawReason = insufficientDraw ? 'Insufficient Material' : 'Stalemate';
+          turnText.textContent = `${drawReason} — Draw`;
+          if (!checkmateState.active) {
+            triggerDrawSequence(drawReason);
+          }
         }
       } else {
         const turnLabel = currentTurn === 'w' ? 'White to Move' : 'Black to Move';
         const aiColor = playerColor === 'w' ? 'b' : 'w';
         const isAiTurn = !scriptedGameActive && gameMode === 'single' && currentTurn === aiColor;
         if (inCheck) {
-          turnText.textContent = `${turnLabel} (Check!)`;
+          turnText.textContent = `${turnLabel} — CHECK!`;
         } else if (isAiTurn) {
           turnText.textContent = `${turnLabel} (AI)...`;
         } else {
@@ -5371,6 +5670,18 @@ export function initWizardChess() {
           baseInt +
           Math.sin(elapsedTotal * 5.6 + i * 1.7) * 0.28 +
           Math.cos(elapsedTotal * 9.1 + i) * 0.16;
+      }
+
+      // Pulse Red Court Check Alert materials when a King is in Check
+      if (checkCourtPulseMats.length > 0) {
+        const checkWave = Math.sin(elapsedTotal * 7.2);
+        checkBorderMat.emissiveIntensity = 0.85 + checkWave * 0.45;
+        for (let i = 0; i < checkCourtPulseMats.length; i++) {
+          const m = checkCourtPulseMats[i];
+          const baseOp = m.userData?.baseOpacity ?? 0.3;
+          const amp = m.userData?.pulseAmp ?? 0.1;
+          m.opacity = Math.max(0.05, Math.min(1.0, baseOp + checkWave * amp));
+        }
       }
 
       if (isAnimatingMove || activeMoveTweens.length > 0 || shatterDebris.length > 0 || checkmateState.active) {

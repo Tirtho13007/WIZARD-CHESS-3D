@@ -12,5 +12,5 @@ dependencyResolutionManagement {
         mavenCentral()
     }
 }
-rootProject.name = "WizardChess3D"
+rootProject.name = "ArcaneChess3D"
 include ':app'

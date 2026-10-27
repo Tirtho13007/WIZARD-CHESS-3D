@@ -250,16 +250,36 @@ export default function App() {
       }
     };
 
-    const handleCheckmate = () => {
+    const handleCheckmate = (e: Event) => {
+      const custom = e as CustomEvent<{
+        winnerColor?: ChessSideColor;
+        defeatedColor?: ChessSideColor;
+        outcome?: 'victory' | 'defeat';
+      }>;
       setGameOver(true);
+      if (custom.detail?.outcome === 'defeat') {
+        showToast('☠ Defeat • Checkmated by AI', 5500);
+      } else {
+        showToast('🏆 Victory! Warhorn Sounded • Enemy King Defeated!', 5500);
+      }
+      scheduleMatchEndVideoAd();
+    };
+
+    const handleDraw = (e: Event) => {
+      const custom = e as CustomEvent<{ reason?: string }>;
+      const reason = custom.detail?.reason || 'Stalemate';
+      setGameOver(true);
+      showToast(`⚖ Match Drawn (${reason}) • Neither Army Prevails`, 6000);
       scheduleMatchEndVideoAd();
     };
 
     window.addEventListener('wizardchess:statechange', handleStateChange);
     window.addEventListener('wizardchess:checkmate', handleCheckmate);
+    window.addEventListener('wizardchess:draw', handleDraw);
     return () => {
       window.removeEventListener('wizardchess:statechange', handleStateChange);
       window.removeEventListener('wizardchess:checkmate', handleCheckmate);
+      window.removeEventListener('wizardchess:draw', handleDraw);
       if (matchEndAdTimerRef.current) {
         window.clearTimeout(matchEndAdTimerRef.current);
       }
@@ -1054,6 +1074,18 @@ export default function App() {
       />
 
       <div id="checkmate-overlay" role="status" aria-live="polite">
+        {/* Celebratory Victory Flair Sparkles & Golden Rays (Shown on Win) */}
+        <div className="victory-flair-layer" aria-hidden="true">
+          <div className="victory-flair-halo"></div>
+          <span className="victory-spark s1">✦</span>
+          <span className="victory-spark s2">★</span>
+          <span className="victory-spark s3">✦</span>
+          <span className="victory-spark s4">✧</span>
+          <span className="victory-spark s5">★</span>
+          <span className="victory-spark s6">✦</span>
+          <span className="victory-spark s7">✧</span>
+          <span className="victory-spark s8">★</span>
+        </div>
         <div className="checkmate-banner">
           <div className="checkmate-ornament">✦ &nbsp; Sanctum Judgment &nbsp; ✦</div>
           <div className="checkmate-crown" id="checkmate-crown">

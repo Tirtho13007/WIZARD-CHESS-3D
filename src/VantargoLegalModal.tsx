@@ -231,7 +231,7 @@ export const VantargoLegalModal: React.FC<VantargoLegalModalProps> = ({
                 </div>
                 <div className="vantargo-info-item">
                   <span className="vantargo-info-label">Package ID</span>
-                  <span className="vantargo-info-val">com.wizardchess3d.sanctum</span>
+                  <span className="vantargo-info-val">com.arcanechess3d.sanctum</span>
                 </div>
                 <div className="vantargo-info-item">
                   <span className="vantargo-info-label">Official Support</span>

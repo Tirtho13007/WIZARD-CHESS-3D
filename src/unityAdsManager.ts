@@ -1,7 +1,7 @@
 // Official Google AdMob + Unity Ads SDK 4.x Configuration & Native Android Bridge
 
 export const UNITY_ADS_CONFIG = {
-  appName: 'WIZARD CHESS 3D',
+  appName: 'Arcane Chess 3D',
   gameId: '800410658',
   unityAppId: '30c9f0ab-88d5-488a-9598-95a52bc2fab0',
   organizationCoreId: '18968528237818',

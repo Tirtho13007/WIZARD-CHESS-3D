@@ -1922,3 +1922,148 @@ body.cinematic-ui-hidden #hud-bottom {
   color: var(--muted);
 }
 
+
+
+/* =========================================================
+   RED CHECK COURT STATUS PILL & VICTORY / DEFEAT / DRAW FLAIR
+   ========================================================= */
+.status-pill.in-check-alert {
+  border-color: rgba(255, 42, 59, 0.92) !important;
+  background: linear-gradient(180deg, rgba(110, 12, 24, 0.94) 0%, rgba(48, 6, 12, 0.96) 100%) !important;
+  box-shadow:
+    0 4px 0 #1f0307,
+    0 0 22px rgba(255, 30, 46, 0.72),
+    inset 0 1px 0 rgba(255, 180, 180, 0.35) !important;
+  animation: checkPillPulse 0.95s ease-in-out infinite alternate;
+}
+
+.status-pill.in-check-alert #turn-text {
+  color: #ffe3e6 !important;
+  text-shadow: 0 0 10px rgba(255, 60, 80, 0.85);
+}
+
+@keyframes checkPillPulse {
+  0% {
+    transform: scale(1);
+    box-shadow: 0 4px 0 #1f0307, 0 0 14px rgba(255, 30, 46, 0.55);
+  }
+  100% {
+    transform: scale(1.03);
+    box-shadow: 0 4px 0 #1f0307, 0 0 28px rgba(255, 42, 59, 0.95);
+  }
+}
+
+/* Celebratory Victory Flair Layer inside #checkmate-overlay */
+.victory-flair-layer {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  z-index: 0;
+}
+
+#checkmate-overlay.victory-flair-active .victory-flair-layer {
+  display: flex;
+}
+
+.victory-flair-halo {
+  width: 540px;
+  height: 540px;
+  border-radius: 50%;
+  background: radial-gradient(
+    circle,
+    rgba(245, 215, 110, 0.34) 0%,
+    rgba(56, 239, 125, 0.14) 38%,
+    rgba(0, 0, 0, 0) 70%
+  );
+  animation: victoryHaloPulse 2.2s ease-in-out infinite alternate;
+}
+
+@keyframes victoryHaloPulse {
+  0% {
+    transform: scale(0.88) rotate(0deg);
+    opacity: 0.72;
+  }
+  100% {
+    transform: scale(1.14) rotate(15deg);
+    opacity: 1;
+  }
+}
+
+.victory-spark {
+  position: absolute;
+  color: #ffe066;
+  font-size: 1.5rem;
+  text-shadow:
+    0 0 14px rgba(255, 224, 102, 0.95),
+    0 0 28px rgba(56, 239, 125, 0.65);
+  animation: victorySparkFloat 2.4s ease-in-out infinite;
+}
+
+.victory-spark.s1 { top: 18%; left: 24%; animation-delay: 0s; }
+.victory-spark.s2 { top: 14%; right: 25%; color: #48eb91; animation-delay: 0.3s; }
+.victory-spark.s3 { top: 34%; left: 16%; animation-delay: 0.55s; }
+.victory-spark.s4 { top: 32%; right: 16%; color: #fff6d6; animation-delay: 0.8s; }
+.victory-spark.s5 { bottom: 24%; left: 22%; color: #48eb91; animation-delay: 0.2s; }
+.victory-spark.s6 { bottom: 22%; right: 22%; animation-delay: 0.65s; }
+.victory-spark.s7 { top: 12%; left: 48%; font-size: 1.85rem; animation-delay: 0.4s; }
+.victory-spark.s8 { bottom: 16%; right: 48%; font-size: 1.65rem; animation-delay: 0.9s; }
+
+@keyframes victorySparkFloat {
+  0%, 100% {
+    transform: translateY(0) scale(0.85) rotate(0deg);
+    opacity: 0.55;
+  }
+  50% {
+    transform: translateY(-14px) scale(1.25) rotate(22deg);
+    opacity: 1;
+  }
+}
+
+#checkmate-overlay.victory-flair-active .checkmate-banner {
+  position: relative;
+  z-index: 1;
+  border-color: rgba(255, 224, 102, 0.95);
+  box-shadow:
+    0 24px 68px rgba(0, 0, 0, 0.9),
+    0 0 46px rgba(245, 215, 110, 0.45),
+    inset 0 1px 0 rgba(255, 248, 214, 0.45);
+}
+
+/* AI Defeat Banner Styling */
+#checkmate-overlay.defeat-banner-active .checkmate-banner {
+  border-color: rgba(230, 57, 70, 0.85);
+  background: linear-gradient(180deg, rgba(28, 10, 14, 0.96) 0%, rgba(12, 6, 9, 0.98) 100%);
+  box-shadow:
+    0 24px 68px rgba(0, 0, 0, 0.92),
+    0 0 42px rgba(230, 25, 46, 0.42);
+}
+
+#checkmate-overlay.defeat-banner-active .checkmate-title {
+  color: #ff4d5e;
+  text-shadow: 0 0 18px rgba(255, 42, 59, 0.65);
+}
+
+#checkmate-overlay.defeat-banner-active .checkmate-crown {
+  color: #ff4d5e;
+}
+
+/* Stalemate / Draw Banner Styling */
+#checkmate-overlay.draw-banner-active .checkmate-banner {
+  border-color: rgba(142, 202, 230, 0.85);
+  background: linear-gradient(180deg, rgba(14, 22, 34, 0.96) 0%, rgba(8, 12, 20, 0.98) 100%);
+  box-shadow:
+    0 24px 68px rgba(0, 0, 0, 0.92),
+    0 0 38px rgba(142, 202, 230, 0.35);
+}
+
+#checkmate-overlay.draw-banner-active .checkmate-title {
+  color: #d8f3dc;
+}
+
+#checkmate-overlay.draw-banner-active .checkmate-crown {
+  color: #8ecae6;
+}

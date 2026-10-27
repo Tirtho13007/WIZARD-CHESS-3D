@@ -47,8 +47,8 @@ export default defineConfig(({ mode }) => {
           related_applications: [
             {
               platform: 'play',
-              url: 'https://play.google.com/store/apps/details?id=com.wizardchess3d.sanctum',
-              id: 'com.wizardchess3d.sanctum',
+              url: 'https://play.google.com/store/apps/details?id=com.arcanechess3d.sanctum',
+              id: 'com.arcanechess3d.sanctum',
             },
           ],
           scope_extensions: [
@@ -87,7 +87,7 @@ export default defineConfig(({ mode }) => {
           ],
           protocol_handlers: [
             {
-              protocol: 'web+wizardchess',
+              protocol: 'web+arcanechess',
               url: '/?match=%s',
             },
           ],
@@ -95,7 +95,7 @@ export default defineConfig(({ mode }) => {
             {
               name: 'Arcane Chess 3D Quick Match',
               description: 'Jump straight into a 3D Gothic Sanctum chess duel.',
-              tag: 'wizard-chess-quick-match',
+              tag: 'arcane-chess-quick-match',
               ms_ac_template: '/widget-template.json',
               data: '/widget-data.json',
               type: 'application/json',
@@ -189,7 +189,7 @@ export default defineConfig(({ mode }) => {
               urlPattern: /\/assets\/glb\/.*\.b64$/i,
               handler: 'CacheFirst',
               options: {
-                cacheName: 'wizard-chess-3d-models-cache',
+                cacheName: 'arcane-chess-3d-models-cache',
                 expiration: {
                   maxEntries: 20,
                   maxAgeSeconds: 60 * 60 * 24 * 365,

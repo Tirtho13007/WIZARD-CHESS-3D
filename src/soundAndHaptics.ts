@@ -5,6 +5,10 @@
 //    that dynamically scales with volume settings during matches
 //  - Visceral Thunderbolt ("Bojropat") + Stone Statue Shatter ("Venge Fela")
 //    piece capture sound effects
+//  - Urgent Royal Check Alert sound ("Raja Check")
+//  - Epic Battle Warhorn ("Juddhe Jitar Horn") on Checkmate Victory
+//  - Somber Fallen Kingdom Defeat sound when losing vs AI
+//  - Solemn Sanctum Truce sound on Stalemate / Draw
 // ============================================================================
 
 export interface AudioHapticSettings {
@@ -154,7 +158,6 @@ class SoundAndHapticsManager {
   // ==========================================================================
   private getTargetAmbienceGain(): number {
     if (!this.shouldPlayAmbience()) return 0;
-    // Faint, reverent background level that scales linearly & smoothly with volume (0..100)
     const normalizedVol = Math.max(0, Math.min(100, this.settings.soundVolume)) / 100;
     return normalizedVol * 0.24;
   }
@@ -207,7 +210,6 @@ class SoundAndHapticsManager {
     if (!ctx) return;
 
     if (!this.ambienceMasterGain || !this.cathedralEchoInput) {
-      // Master gain for all Gregorian chant & cathedral ambience (scales dynamically with volume)
       const master = ctx.createGain();
       master.gain.setValueAtTime(Math.max(0.0001, this.getTargetAmbienceGain()), ctx.currentTime);
       master.connect(ctx.destination);
@@ -250,7 +252,7 @@ class SoundAndHapticsManager {
 
       delayLeft.connect(dampLeft);
       dampLeft.connect(fbLeft);
-      fbLeft.connect(delayRight); // Cross-feed for spacious cathedral vault decay
+      fbLeft.connect(delayRight);
       dampLeft.connect(wetGain);
 
       delayRight.connect(dampRight);
@@ -262,12 +264,10 @@ class SoundAndHapticsManager {
       this.cathedralEchoInput = echoInput;
     }
 
-    // Ensure continuous faint Cathedral Bourdon / Sub-Organ Drone is running
     if (!this.ambienceDroneStop) {
       this.startCathedralBourdonDrone(ctx);
     }
 
-    // Ensure Gregorian Chant phrase loop is scheduled
     if (this.ambiencePhraseTimer === null && typeof window !== 'undefined') {
       this.scheduleNextGregorianPhrase();
       this.ambiencePhraseTimer = window.setInterval(() => {
@@ -285,7 +285,6 @@ class SoundAndHapticsManager {
       const droneBus = ctx.createGain();
       droneBus.gain.value = 0.16;
 
-      // Slow breathing LFO so the cathedral air undulates like distant organ bellows
       const lfo = ctx.createOscillator();
       lfo.type = 'sine';
       lfo.frequency.value = 0.11;
@@ -298,7 +297,6 @@ class SoundAndHapticsManager {
       lp.type = 'lowpass';
       lp.frequency.value = 290;
 
-      // D2 (73.42 Hz) & A2 (110.00 Hz) sacred fifth drone
       const oscD2 = ctx.createOscillator();
       oscD2.type = 'sine';
       oscD2.frequency.value = 73.42;
@@ -371,13 +369,14 @@ class SoundAndHapticsManager {
       );
     });
 
-    // Every second phrase, add a faint distant Gothic sanctuary bronze bell echo
     if (this.ambiencePhraseIndex % 2 === 0) {
       const bellTime = now + 0.35;
       const bellOsc = ctx.createOscillator();
       bellOsc.type = 'sine';
-      // High D5 or A5 sanctuary harmonic
-      bellOsc.frequency.setValueAtTime(this.ambiencePhraseIndex % 4 === 0 ? 587.33 : 880.0, bellTime);
+      bellOsc.frequency.setValueAtTime(
+        this.ambiencePhraseIndex % 4 === 0 ? 587.33 : 880.0,
+        bellTime
+      );
 
       const bellGain = ctx.createGain();
       bellGain.gain.setValueAtTime(0.0001, bellTime);
@@ -401,7 +400,6 @@ class SoundAndHapticsManager {
   ): void {
     if (!this.ambienceMasterGain || !this.cathedralEchoInput) return;
 
-    // 3-band Vowel Formant Filter Bank for realistic monastic choir timbre
     const formantSum = ctx.createGain();
     formantSum.gain.setValueAtTime(0.0001, startTime);
     formantSum.gain.linearRampToValueAtTime(0.26, startTime + 0.32);
@@ -437,14 +435,12 @@ class SoundAndHapticsManager {
     f2Gain.connect(formantSum);
     f3Gain.connect(formantSum);
 
-    // Connect choir voices mostly to the Cathedral Echo Network for distant vaulted realism
     const dryVocal = ctx.createGain();
     dryVocal.gain.value = 0.32;
     formantSum.connect(dryVocal);
     dryVocal.connect(this.ambienceMasterGain);
     formantSum.connect(this.cathedralEchoInput);
 
-    // Subtle vocal vibrato
     const vibrato = ctx.createOscillator();
     vibrato.type = 'sine';
     vibrato.frequency.setValueAtTime(4.9, startTime);
@@ -454,7 +450,6 @@ class SoundAndHapticsManager {
     vibrato.start(startTime);
     vibrato.stop(startTime + duration + 0.5);
 
-    // Ensemble of detuned monk voices (baritone/tenor unison + optional organum fifth on cadences)
     const voiceFreqs = addFifthHarmony
       ? [baseFreq, baseFreq * 1.003, baseFreq * 0.997, baseFreq * 1.498]
       : [baseFreq, baseFreq * 1.0035, baseFreq * 0.9965];
@@ -490,6 +485,33 @@ class SoundAndHapticsManager {
     } catch {
       // Ignore vibration errors on unsupported devices
     }
+  }
+
+  // ==========================================================================
+  // MATCH START SOUND
+  // ==========================================================================
+  public playMatchStart(): void {
+    this.vibrate([20, 35, 30]);
+    const ctx = this.getContext();
+    if (!ctx) return;
+
+    const now = ctx.currentTime;
+    const masterGain = this.getGain();
+
+    [146.83, 220.0, 293.66].forEach((freq, i) => {
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = 'triangle';
+      const t0 = now + i * 0.06;
+      osc.frequency.setValueAtTime(freq, t0);
+      gain.gain.setValueAtTime(0.001, t0);
+      gain.gain.linearRampToValueAtTime(0.24 * masterGain, t0 + 0.04);
+      gain.gain.exponentialRampToValueAtTime(0.001, t0 + 0.75);
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.start(t0);
+      osc.stop(t0 + 0.78);
+    });
   }
 
   // ==========================================================================
@@ -529,7 +551,6 @@ class SoundAndHapticsManager {
     const now = ctx.currentTime;
     const masterGain = this.getGain();
 
-    // Filtered noise for carved stone sliding across marble board
     const slideDuration = 0.24;
     const bufferSize = Math.floor(ctx.sampleRate * slideDuration);
     const noiseBuffer = ctx.createBuffer(1, bufferSize, ctx.sampleRate);
@@ -558,7 +579,6 @@ class SoundAndHapticsManager {
     noise.start(now);
     noise.stop(now + slideDuration);
 
-    // Heavy stone settling thud at destination square
     const thudTime = now + 0.16;
     const thudOsc = ctx.createOscillator();
     const thudGain = ctx.createGain();
@@ -587,12 +607,10 @@ class SoundAndHapticsManager {
     const masterGain = this.getGain();
     const duration = 0.24;
 
-    // Crackling lightning static + weapon air-cleave whoosh
     const bufferSize = Math.floor(ctx.sampleRate * duration);
     const noiseBuffer = ctx.createBuffer(1, bufferSize, ctx.sampleRate);
     const data = noiseBuffer.getChannelData(0);
     for (let i = 0; i < bufferSize; i++) {
-      // Add subtle electric crackle spikes
       const spike = Math.random() > 0.92 ? 1.8 : 0.6;
       data[i] = (Math.random() * 2 - 1) * spike;
     }
@@ -620,10 +638,8 @@ class SoundAndHapticsManager {
 
   // ==========================================================================
   // 4. CAPTURE STRIKE ("BOJROPAT" THUNDERBOLT CRACK + INITIAL STONE FRACTURE)
-  // Sky-splitting lightning bolt snap + deep rolling thunderclap + marble crack
   // ==========================================================================
   public playCaptureStrike(): void {
-    // Intense lightning shockwave haptic pattern
     this.vibrate([65, 20, 95, 25, 60]);
     const ctx = this.getContext();
     if (!ctx) return;
@@ -631,14 +647,13 @@ class SoundAndHapticsManager {
     const now = ctx.currentTime;
     const masterGain = this.getGain();
 
-    // 1. SKY-SPLITTING LIGHTNING BOLT SNAP ("Bojropat" Electric Whip-Crack, 0.0s - 0.16s)
+    // 1. SKY-SPLITTING LIGHTNING BOLT SNAP ("Bojropat" Electric Whip-Crack)
     const crackDur = 0.16;
     const crackSamples = Math.floor(ctx.sampleRate * crackDur);
     const crackBuf = ctx.createBuffer(1, crackSamples, ctx.sampleRate);
     const crackData = crackBuf.getChannelData(0);
     for (let i = 0; i < crackSamples; i++) {
       const t = i / crackSamples;
-      // Jagged high-voltage discharge envelope
       const jagged = Math.random() > 0.18 ? 1.0 : -0.95;
       crackData[i] = (Math.random() * 2 - 1) * jagged * Math.pow(1 - t, 0.45);
     }
@@ -665,7 +680,7 @@ class SoundAndHapticsManager {
     crackSrc.start(now);
     crackSrc.stop(now + crackDur);
 
-    // 2. HIGH-VOLTAGE LIGHTNING ARC TRANSIENT (Downward supersonic shockwave snap)
+    // 2. HIGH-VOLTAGE LIGHTNING ARC TRANSIENT
     const arcOsc = ctx.createOscillator();
     const arcGain = ctx.createGain();
     arcOsc.type = 'sawtooth';
@@ -680,7 +695,7 @@ class SoundAndHapticsManager {
     arcOsc.start(now);
     arcOsc.stop(now + 0.105);
 
-    // 3. MASSIVE THUNDERCLAP SUB-SHOCKWAVE ("Bojropat" Chest-Thumping Boom)
+    // 3. MASSIVE THUNDERCLAP SUB-SHOCKWAVE
     const boomOsc = ctx.createOscillator();
     const boomGain = ctx.createGain();
     boomOsc.type = 'sine';
@@ -695,14 +710,13 @@ class SoundAndHapticsManager {
     boomOsc.start(now);
     boomOsc.stop(now + 0.66);
 
-    // 4. ROLLING THUNDER RUMBLE ACROSS THE CATHEDRAL (Multi-crest thunder tail, 1.15s)
+    // 4. ROLLING THUNDER RUMBLE ACROSS THE CATHEDRAL
     const thunderDur = 1.15;
     const thunderSamples = Math.floor(ctx.sampleRate * thunderDur);
     const thunderBuf = ctx.createBuffer(1, thunderSamples, ctx.sampleRate);
     const thunderData = thunderBuf.getChannelData(0);
     for (let i = 0; i < thunderSamples; i++) {
       const t = i / ctx.sampleRate;
-      // Natural rolling thunder crests (initial blast + secondary sky echoes at 0.19s & 0.44s)
       const crest1 = Math.exp(-t * 6.5);
       const crest2 = 0.62 * Math.exp(-Math.pow((t - 0.19) / 0.11, 2));
       const crest3 = 0.42 * Math.exp(-Math.pow((t - 0.44) / 0.18, 2));
@@ -728,7 +742,7 @@ class SoundAndHapticsManager {
     thunderSrc.start(now);
     thunderSrc.stop(now + thunderDur);
 
-    // 5. SHARP MARBLE STATUE SPLITTING FRACTURE (Initial stone crack at impact point)
+    // 5. SHARP MARBLE STATUE SPLITTING FRACTURE
     [880, 1480, 2320].forEach((freq, idx) => {
       const stoneOsc = ctx.createOscillator();
       const stoneGain = ctx.createGain();
@@ -749,10 +763,8 @@ class SoundAndHapticsManager {
 
   // ==========================================================================
   // 5. STONE SHATTER ("VENGE FELA" HEAVY STATUE DEMOLITION + THUNDER AFTERSHOCK)
-  // Crisp brittle stone statue breaking apart + cascading marble rubble + thunder roll
   // ==========================================================================
   public playStoneShatter(): void {
-    // Heavy multi-pulse vibration matching stone breaking & rubble hitting the board
     this.vibrate([85, 25, 65, 25, 50, 30, 35]);
     const ctx = this.getContext();
     if (!ctx) return;
@@ -760,7 +772,6 @@ class SoundAndHapticsManager {
     const now = ctx.currentTime;
     const masterGain = this.getGain();
 
-    // 1. MULTIPLE BRITTLE STONE FRACTURE SNAPS ("Venge Fela" Statue Breaking Apart)
     const fractureOffsets = [0, 0.022, 0.052, 0.095];
     fractureOffsets.forEach((offset, idx) => {
       const start = now + offset;
@@ -775,7 +786,6 @@ class SoundAndHapticsManager {
       const snapSrc = ctx.createBufferSource();
       snapSrc.buffer = snapBuf;
 
-      // Resonant stone/marble fracture formants
       const stoneBp = ctx.createBiquadFilter();
       stoneBp.type = 'bandpass';
       stoneBp.frequency.setValueAtTime(1150 + idx * 420, start);
@@ -796,7 +806,6 @@ class SoundAndHapticsManager {
       snapSrc.stop(start + snapDur);
     });
 
-    // 2. DEEP ROLLING THUNDER AFTERSHOCK & STONE DEMOLITION SUB-DROP (1.35s)
     const aftershockDur = 1.35;
     const aftershockSamples = Math.floor(ctx.sampleRate * aftershockDur);
     const aftershockBuf = ctx.createBuffer(1, aftershockSamples, ctx.sampleRate);
@@ -804,8 +813,7 @@ class SoundAndHapticsManager {
     for (let i = 0; i < aftershockSamples; i++) {
       const t = i / ctx.sampleRate;
       const roll =
-        Math.exp(-t * 3.8) *
-        (0.75 + 0.25 * Math.sin(t * 24) * Math.cos(t * 11));
+        Math.exp(-t * 3.8) * (0.75 + 0.25 * Math.sin(t * 24) * Math.cos(t * 11));
       aftershockData[i] = (Math.random() * 2 - 1) * roll;
     }
 
@@ -827,7 +835,6 @@ class SoundAndHapticsManager {
     aftershockSrc.start(now);
     aftershockSrc.stop(now + aftershockDur);
 
-    // Sub-bass stone collapse impact
     const subOsc = ctx.createOscillator();
     const subGain = ctx.createGain();
     subOsc.type = 'sine';
@@ -842,7 +849,6 @@ class SoundAndHapticsManager {
     subOsc.start(now);
     subOsc.stop(now + 0.64);
 
-    // 3. CASCADING CARVED MARBLE & STONE DEBRIS CLATTERING ON THE BOARD (22 Shards)
     for (let i = 0; i < 22; i++) {
       const delay = 0.015 + Math.pow(i / 22, 1.35) * 0.78 + Math.random() * 0.045;
       const startTime = now + delay;
@@ -851,7 +857,6 @@ class SoundAndHapticsManager {
         ? 0.065 + Math.random() * 0.055
         : 0.032 + Math.random() * 0.038;
 
-      // Stony percussive knock (short pitched stone resonance)
       const shardOsc = ctx.createOscillator();
       const shardGain = ctx.createGain();
       shardOsc.type = 'triangle';
@@ -860,7 +865,10 @@ class SoundAndHapticsManager {
         ? 240 + Math.random() * 420
         : 780 + Math.random() * 2100;
       shardOsc.frequency.setValueAtTime(baseFreq, startTime);
-      shardOsc.frequency.exponentialRampToValueAtTime(baseFreq * 0.34, startTime + shardDuration);
+      shardOsc.frequency.exponentialRampToValueAtTime(
+        baseFreq * 0.34,
+        startTime + shardDuration
+      );
 
       const amp = (isHeavyChunk ? 0.38 : 0.22) * (1 - i / 28) * masterGain;
       shardGain.gain.setValueAtTime(Math.max(0.002, amp), startTime);
@@ -871,7 +879,6 @@ class SoundAndHapticsManager {
       shardOsc.start(startTime);
       shardOsc.stop(startTime + shardDuration + 0.01);
 
-      // Crisp marble chip click on the first 10 impacts
       if (i < 10) {
         const chipSamples = Math.floor(ctx.sampleRate * 0.024);
         const chipBuf = ctx.createBuffer(1, chipSamples, ctx.sampleRate);
@@ -901,72 +908,205 @@ class SoundAndHapticsManager {
   }
 
   // ==========================================================================
-  // 6. KING IN CHECK WARNING (Ominous Cathedral Brass Bell Toll)
+  // 6. KING IN CHECK ALARM ("RAJA CHECK" URGENT DANGER BELL + BLADE CLASH)
+  // Called via both playKingCheck() and playCheckWarning()
   // ==========================================================================
+  public playKingCheck(): void {
+    this.playCheckWarning();
+  }
+
   public playCheckWarning(): void {
-    this.vibrate([50, 60, 90]);
+    this.vibrate([70, 40, 95, 40, 70]);
     const ctx = this.getContext();
     if (!ctx) return;
 
     const now = ctx.currentTime;
     const masterGain = this.getGain();
 
-    const freqs = [293.66, 415.3, 587.33]; // D4 + G#4 tritone cathedral warning bell
-    freqs.forEach((f, idx) => {
-      const osc = ctx.createOscillator();
-      const gain = ctx.createGain();
-      osc.type = idx === 1 ? 'sawtooth' : 'sine';
-      osc.frequency.setValueAtTime(f, now);
+    // 1. Urgent Double Danger Pulse (Crimson Court Alert)
+    [0, 0.22].forEach((pulseOffset, pIdx) => {
+      const t0 = now + pulseOffset;
 
-      const peak = (idx === 0 ? 0.34 : 0.18) * masterGain;
-      gain.gain.setValueAtTime(0.001, now);
-      gain.gain.linearRampToValueAtTime(peak, now + 0.015);
-      gain.gain.exponentialRampToValueAtTime(0.0008, now + 0.95);
+      // Sharp metallic sword/crown danger ring + ominous tritone cathedral warning bell
+      const bellFreqs = pIdx === 0 ? [440.0, 622.25, 880.0] : [587.33, 830.61, 1174.66];
+      bellFreqs.forEach((f, idx) => {
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.type = idx === 1 ? 'sawtooth' : 'triangle';
+        osc.frequency.setValueAtTime(f, t0);
 
-      osc.connect(gain);
-      gain.connect(ctx.destination);
-      if (this.cathedralEchoInput) {
-        gain.connect(this.cathedralEchoInput);
-      }
-      osc.start(now);
-      osc.stop(now + 0.98);
+        const filter = ctx.createBiquadFilter();
+        filter.type = 'lowpass';
+        filter.frequency.setValueAtTime(2800, t0);
+        filter.frequency.exponentialRampToValueAtTime(650, t0 + 0.65);
+
+        const peak = (idx === 0 ? 0.52 : 0.28) * masterGain;
+        gain.gain.setValueAtTime(0.001, t0);
+        gain.gain.linearRampToValueAtTime(peak, t0 + 0.012);
+        gain.gain.exponentialRampToValueAtTime(0.0008, t0 + 0.72);
+
+        osc.connect(filter);
+        filter.connect(gain);
+        gain.connect(ctx.destination);
+        if (this.cathedralEchoInput) {
+          gain.connect(this.cathedralEchoInput);
+        }
+        osc.start(t0);
+        osc.stop(t0 + 0.75);
+      });
+
+      // Deep warning heartbeat thud under each check alarm pulse
+      const subOsc = ctx.createOscillator();
+      const subGain = ctx.createGain();
+      subOsc.type = 'sine';
+      subOsc.frequency.setValueAtTime(110, t0);
+      subOsc.frequency.exponentialRampToValueAtTime(36, t0 + 0.19);
+      subGain.gain.setValueAtTime(0.65 * masterGain, t0);
+      subGain.gain.exponentialRampToValueAtTime(0.001, t0 + 0.21);
+      subOsc.connect(subGain);
+      subGain.connect(ctx.destination);
+      subOsc.start(t0);
+      subOsc.stop(t0 + 0.22);
     });
   }
 
   // ==========================================================================
-  // 7. CHECKMATE / KING FALL FANFARE (Grand Sanctum Judgment)
+  // 7. WAR VICTORY HORN ("JUDDHE JITAR HORN" — EPIC MEDIEVAL BATTLE WARHORN)
+  // Called when the Player wins by Checkmate (or in 2-Player Local Checkmate)
   // ==========================================================================
+  public playCheckmateVictory(): void {
+    this.playWarVictoryHorn();
+  }
+
   public playCheckmateFanfare(): void {
-    this.vibrate([90, 50, 90, 50, 220]);
+    this.playWarVictoryHorn();
+  }
+
+  public playWarVictoryHorn(): void {
+    this.vibrate([110, 45, 110, 45, 280]);
     const ctx = this.getContext();
     if (!ctx) return;
 
     const now = ctx.currentTime;
     const masterGain = this.getGain();
 
-    const notes = [
-      { freq: 146.83, start: 0.0, dur: 1.6, amp: 0.38 }, // D3
-      { freq: 220.0, start: 0.08, dur: 1.6, amp: 0.28 }, // A3
-      { freq: 293.66, start: 0.16, dur: 1.7, amp: 0.32 }, // D4
-      { freq: 349.23, start: 0.28, dur: 1.8, amp: 0.3 }, // F4
-      { freq: 440.0, start: 0.42, dur: 2.1, amp: 0.36 }, // A4
+    // War Drum Double Boom at the start of the horn call
+    [0, 0.28, 0.92].forEach((drumOffset, idx) => {
+      const tDrum = now + drumOffset;
+      const drumOsc = ctx.createOscillator();
+      const drumGain = ctx.createGain();
+      drumOsc.type = 'sine';
+      drumOsc.frequency.setValueAtTime(idx === 2 ? 128 : 98, tDrum);
+      drumOsc.frequency.exponentialRampToValueAtTime(26, tDrum + 0.42);
+      drumGain.gain.setValueAtTime(0.85 * masterGain, tDrum);
+      drumGain.gain.exponentialRampToValueAtTime(0.001, tDrum + 0.45);
+      drumOsc.connect(drumGain);
+      drumGain.connect(ctx.destination);
+      drumOsc.start(tDrum);
+      drumOsc.stop(tDrum + 0.46);
+    });
+
+    // Epic Two-Stage Medieval Battle Warhorn Call ("Juddhe Jitar Horn"):
+    // Call 1 (0.0s - 1.05s): Deep resonant D3/A3 battle horn blast
+    // Call 2 (0.92s - 2.85s): Triumphant soaring Royal Warhorn chord (D3 + A3 + D4 + F#4 + A4)
+    const hornBlasts = [
+      // First warhorn call (deep brass call to arms)
+      { freq: 146.83, start: 0.0, dur: 1.05, amp: 0.46, detune: -6 },
+      { freq: 146.83, start: 0.0, dur: 1.05, amp: 0.46, detune: 6 },
+      { freq: 220.0, start: 0.02, dur: 1.02, amp: 0.34, detune: 3 },
+      // Second grand victorious warhorn blast ("Juddhe Jitar Horn" climax)
+      { freq: 146.83, start: 0.92, dur: 2.15, amp: 0.48, detune: -7 },
+      { freq: 220.0, start: 0.92, dur: 2.15, amp: 0.38, detune: 5 },
+      { freq: 293.66, start: 0.94, dur: 2.15, amp: 0.44, detune: -4 },
+      { freq: 293.66, start: 0.94, dur: 2.15, amp: 0.44, detune: 7 },
+      { freq: 369.99, start: 0.98, dur: 2.08, amp: 0.32, detune: 0 }, // F#4 major triumph third
+      { freq: 440.0, start: 1.02, dur: 2.05, amp: 0.38, detune: 4 },
     ];
 
-    notes.forEach((n) => {
+    hornBlasts.forEach((h) => {
+      const t0 = now + h.start;
+      const osc = ctx.createOscillator();
+      osc.type = 'sawtooth';
+      // Characteristic warhorn lip-swell pitch bend on attack
+      osc.frequency.setValueAtTime(h.freq * 0.955, t0);
+      osc.frequency.exponentialRampToValueAtTime(h.freq, t0 + 0.14);
+      osc.detune.setValueAtTime(h.detune, t0);
+
+      // Brass horn formant resonant lowpass + peaking bell filter
+      const brassFilter = ctx.createBiquadFilter();
+      brassFilter.type = 'lowpass';
+      brassFilter.frequency.setValueAtTime(380, t0);
+      brassFilter.frequency.exponentialRampToValueAtTime(1850, t0 + 0.28);
+      brassFilter.frequency.exponentialRampToValueAtTime(680, t0 + h.dur);
+      brassFilter.Q.setValueAtTime(2.4, t0);
+
+      const gain = ctx.createGain();
+      gain.gain.setValueAtTime(0.001, t0);
+      gain.gain.linearRampToValueAtTime(h.amp * masterGain, t0 + 0.16);
+      gain.gain.setValueAtTime(h.amp * 0.88 * masterGain, t0 + h.dur * 0.68);
+      gain.gain.exponentialRampToValueAtTime(0.0008, t0 + h.dur);
+
+      osc.connect(brassFilter);
+      brassFilter.connect(gain);
+      gain.connect(ctx.destination);
+      if (this.cathedralEchoInput) {
+        gain.connect(this.cathedralEchoInput);
+      }
+      osc.start(t0);
+      osc.stop(t0 + h.dur + 0.05);
+    });
+  }
+
+  // ==========================================================================
+  // 8. AI DEFEAT SOUND (When Player loses against AI — Somber Doom Horn & Dirge)
+  // ==========================================================================
+  public playDefeatSound(): void {
+    this.vibrate([120, 60, 180, 60, 260]);
+    const ctx = this.getContext();
+    if (!ctx) return;
+
+    const now = ctx.currentTime;
+    const masterGain = this.getGain();
+
+    // Crushing dark sub-bass fall
+    const subOsc = ctx.createOscillator();
+    const subGain = ctx.createGain();
+    subOsc.type = 'sine';
+    subOsc.frequency.setValueAtTime(95, now);
+    subOsc.frequency.exponentialRampToValueAtTime(22, now + 1.45);
+    subGain.gain.setValueAtTime(0.85 * masterGain, now);
+    subGain.gain.exponentialRampToValueAtTime(0.001, now + 1.5);
+    subOsc.connect(subGain);
+    subGain.connect(ctx.destination);
+    subOsc.start(now);
+    subOsc.stop(now + 1.55);
+
+    // Mournful descending Fallen Kingdom Horn notes (D3 -> Bb2 -> A2 -> D2)
+    const defeatNotes = [
+      { freq: 146.83, endFreq: 142.0, start: 0.0, dur: 0.65, amp: 0.42 },
+      { freq: 116.54, endFreq: 112.0, start: 0.55, dur: 0.65, amp: 0.42 },
+      { freq: 110.0, endFreq: 104.0, start: 1.1, dur: 0.75, amp: 0.44 },
+      { freq: 73.42, endFreq: 69.3, start: 1.7, dur: 1.65, amp: 0.52 },
+    ];
+
+    defeatNotes.forEach((n) => {
+      const t0 = now + n.start;
       const osc = ctx.createOscillator();
       const filter = ctx.createBiquadFilter();
       const gain = ctx.createGain();
 
       osc.type = 'sawtooth';
-      osc.frequency.setValueAtTime(n.freq, now + n.start);
+      osc.frequency.setValueAtTime(n.freq, t0);
+      osc.frequency.linearRampToValueAtTime(n.endFreq, t0 + n.dur);
 
       filter.type = 'lowpass';
-      filter.frequency.setValueAtTime(1400, now + n.start);
-      filter.frequency.exponentialRampToValueAtTime(420, now + n.start + n.dur);
+      filter.frequency.setValueAtTime(620, t0);
+      filter.frequency.exponentialRampToValueAtTime(210, t0 + n.dur);
+      filter.Q.setValueAtTime(1.8, t0);
 
-      gain.gain.setValueAtTime(0.001, now + n.start);
-      gain.gain.linearRampToValueAtTime(n.amp * masterGain, now + n.start + 0.04);
-      gain.gain.exponentialRampToValueAtTime(0.0008, now + n.start + n.dur);
+      gain.gain.setValueAtTime(0.001, t0);
+      gain.gain.linearRampToValueAtTime(n.amp * masterGain, t0 + 0.08);
+      gain.gain.exponentialRampToValueAtTime(0.0008, t0 + n.dur);
 
       osc.connect(filter);
       filter.connect(gain);
@@ -974,13 +1114,53 @@ class SoundAndHapticsManager {
       if (this.cathedralEchoInput) {
         gain.connect(this.cathedralEchoInput);
       }
-      osc.start(now + n.start);
-      osc.stop(now + n.start + n.dur + 0.05);
+      osc.start(t0);
+      osc.stop(t0 + n.dur + 0.05);
     });
   }
 
   // ==========================================================================
-  // 8. UI BUTTON CLICK & REWARD UNLOCK CHIME
+  // 9. STALEMATE / DRAW SOUND (Solemn Sanctum Truce Horn & Balanced Chime)
+  // ==========================================================================
+  public playDrawSound(): void {
+    this.vibrate([50, 50, 50, 50, 90]);
+    const ctx = this.getContext();
+    if (!ctx) return;
+
+    const now = ctx.currentTime;
+    const masterGain = this.getGain();
+
+    // Suspended neutral truce chord (D3 - G3 - A3 - D4) with hollow bronze chime
+    const truceNotes = [
+      { freq: 146.83, start: 0.0, dur: 1.2, amp: 0.34, type: 'triangle' as OscillatorType },
+      { freq: 196.0, start: 0.18, dur: 1.2, amp: 0.32, type: 'triangle' as OscillatorType },
+      { freq: 220.0, start: 0.36, dur: 1.3, amp: 0.3, type: 'sine' as OscillatorType },
+      { freq: 293.66, start: 0.56, dur: 1.5, amp: 0.32, type: 'triangle' as OscillatorType },
+    ];
+
+    truceNotes.forEach((n) => {
+      const t0 = now + n.start;
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = n.type;
+      osc.frequency.setValueAtTime(n.freq, t0);
+
+      gain.gain.setValueAtTime(0.001, t0);
+      gain.gain.linearRampToValueAtTime(n.amp * masterGain, t0 + 0.05);
+      gain.gain.exponentialRampToValueAtTime(0.0008, t0 + n.dur);
+
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      if (this.cathedralEchoInput) {
+        gain.connect(this.cathedralEchoInput);
+      }
+      osc.start(t0);
+      osc.stop(t0 + n.dur + 0.04);
+    });
+  }
+
+  // ==========================================================================
+  // 10. UI BUTTON CLICK & REWARD UNLOCK CHIME
   // ==========================================================================
   public playButtonClick(): void {
     this.vibrate(8);
@@ -1029,6 +1209,10 @@ class SoundAndHapticsManager {
       osc.start(start);
       osc.stop(start + 0.38);
     });
+  }
+
+  public playRewardUnlocked(): void {
+    this.playRewardGranted();
   }
 }
 

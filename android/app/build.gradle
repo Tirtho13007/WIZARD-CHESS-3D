@@ -3,11 +3,11 @@ plugins {
 }
 
 android {
-    namespace 'com.wizardchess3d.sanctum'
+    namespace 'com.arcanechess3d.sanctum'
     compileSdk 34
 
     defaultConfig {
-        applicationId "com.wizardchess3d.sanctum"
+        applicationId "com.arcanechess3d.sanctum"
         minSdk 23
         targetSdk 34
         versionCode 4
@@ -22,9 +22,9 @@ android {
     signingConfigs {
         release {
             storeFile file("release-key.jks")
-            storePassword System.getenv("KEYSTORE_PASSWORD") ?: "wizardchess123"
-            keyAlias System.getenv("KEY_ALIAS") ?: "wizardchess"
-            keyPassword System.getenv("KEY_PASSWORD") ?: "wizardchess123"
+            storePassword System.getenv("KEYSTORE_PASSWORD") ?: "arcanechess123"
+            keyAlias System.getenv("KEY_ALIAS") ?: "arcanechess"
+            keyPassword System.getenv("KEY_PASSWORD") ?: "arcanechess123"
         }
     }
 
