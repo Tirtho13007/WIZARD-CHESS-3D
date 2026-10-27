@@ -25,7 +25,7 @@
             android:value="ca-app-pub-1151788930010230~5173980133" />
 
         <activity
-            android:name=".MainActivity"
+            android:name="com.arcanechess3d.sanctum.MainActivity"
             android:configChanges="orientation|screenSize|screenLayout|keyboardHidden|uiMode"
             android:exported="true"
             android:launchMode="singleTask"

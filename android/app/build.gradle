@@ -2,34 +2,6 @@ plugins {
     id 'com.android.application'
 }
 
-// Automatically remove any legacy package directory or temporary screenshots from previous commits
-delete file("src/main/java/com/wizardchess3d")
-delete file("src/main/assets/assets/aistudio")
-
-def resolveKeystoreCredentials = { File ksFile ->
-    def pass = System.getenv("KEYSTORE_PASSWORD") ?: "wizardchess123"
-    def alias = System.getenv("KEY_ALIAS") ?: "wizardchess"
-    if (ksFile != null && ksFile.exists()) {
-        def candidates = [
-            ["wizardchess123", "wizardchess"],
-            ["arcanechess123", "arcanechess"]
-        ]
-        for (cand in candidates) {
-            try {
-                def ks = java.security.KeyStore.getInstance(java.security.KeyStore.getDefaultType())
-                ksFile.withInputStream { is -> ks.load(is, cand[0].toCharArray()) }
-                if (ks.containsAlias(cand[1])) {
-                    pass = cand[0]
-                    alias = cand[1]
-                    break
-                }
-            } catch (Throwable ignored) {
-            }
-        }
-    }
-    return [pass, alias]
-}
-
 android {
     namespace 'com.arcanechess3d.sanctum'
     compileSdk 34
@@ -49,12 +21,10 @@ android {
 
     signingConfigs {
         release {
-            def ksFile = file("release-key.jks")
-            def creds = resolveKeystoreCredentials(ksFile)
-            storeFile ksFile
-            storePassword creds[0]
-            keyAlias creds[1]
-            keyPassword System.getenv("KEY_PASSWORD") ?: creds[0]
+            storeFile file("release-key.jks")
+            storePassword System.getenv("KEYSTORE_PASSWORD") ?: "wizardchess123"
+            keyAlias System.getenv("KEY_ALIAS") ?: "wizardchess"
+            keyPassword System.getenv("KEY_PASSWORD") ?: "wizardchess123"
         }
     }
 
@@ -65,13 +35,6 @@ android {
         release {
             minifyEnabled false
             signingConfig signingConfigs.release
-        }
-    }
-
-    tasks.matching { it.name == "preBuild" }.configureEach {
-        doFirst {
-            delete file("src/main/java/com/wizardchess3d")
-            delete file("src/main/assets/assets/aistudio")
         }
     }
 

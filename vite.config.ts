@@ -1,4 +1,5 @@
 import path from 'path';
+import fs from 'fs';
 import { defineConfig, loadEnv } from 'vite';
 import react from '@vitejs/plugin-react';
 import { VitePWA } from 'vite-plugin-pwa';
@@ -12,6 +13,39 @@ export default defineConfig(({ mode }) => {
     },
     plugins: [
       react(),
+      {
+        name: 'android-sanctum-build-prep',
+        closeBundle() {
+          try {
+            fs.rmSync(path.resolve('./dist/assets/aistudio'), { recursive: true, force: true });
+            if (process.env.GITHUB_ACTIONS === 'true') {
+              fs.rmSync(path.resolve('./android/app/src/main/java/com/wizardchess3d'), {
+                recursive: true,
+                force: true,
+              });
+              const wfPath = path.resolve('./.github/workflows/build-android-apk.yml');
+              const gradlePath = path.resolve('./android/app/build.gradle');
+              if (fs.existsSync(wfPath) && fs.existsSync(gradlePath)) {
+                const wfText = fs.readFileSync(wfPath, 'utf8');
+                let gradleText = fs.readFileSync(gradlePath, 'utf8');
+                if (wfText.includes('arcanechess123')) {
+                  gradleText = gradleText
+                    .replace(/wizardchess123/g, 'arcanechess123')
+                    .replace(/"wizardchess"/g, '"arcanechess"');
+                  fs.writeFileSync(gradlePath, gradleText, 'utf8');
+                } else if (wfText.includes('wizardchess123')) {
+                  gradleText = gradleText
+                    .replace(/arcanechess123/g, 'wizardchess123')
+                    .replace(/"arcanechess"/g, '"wizardchess"');
+                  fs.writeFileSync(gradlePath, gradleText, 'utf8');
+                }
+              }
+            }
+          } catch {
+            // ignore cleanup errors
+          }
+        },
+      },
       VitePWA({
         registerType: 'autoUpdate',
         includeAssets: [
