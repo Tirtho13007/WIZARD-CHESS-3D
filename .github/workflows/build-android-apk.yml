@@ -37,23 +37,24 @@ jobs:
 
       - name: Bundle Built Game Assets into Native Android APK
         run: |
+          rm -rf dist/assets/aistudio
+          rm -rf android/app/src/main/java/com/wizardchess3d
           mkdir -p android/app/src/main/assets
           cp -r dist/* android/app/src/main/assets/
 
       - name: Generate Android Signing Keystore
         working-directory: ./android/app
         run: |
-          if [ ! -f release-key.jks ]; then
-            keytool -genkeypair -v \
-              -keystore release-key.jks \
-              -alias arcanechess \
-              -keyalg RSA \
-              -keysize 2048 \
-              -validity 10000 \
-              -storepass arcanechess123 \
-              -keypass arcanechess123 \
-              -dname "CN=Arcane Chess 3D, OU=Games, O=Vantargo, L=Dhaka, S=Dhaka, C=BD"
-          fi
+          rm -f release-key.jks
+          keytool -genkeypair -v \
+            -keystore release-key.jks \
+            -alias arcanechess \
+            -keyalg RSA \
+            -keysize 2048 \
+            -validity 10000 \
+            -storepass arcanechess123 \
+            -keypass arcanechess123 \
+            -dname "CN=Arcane Chess 3D, OU=Games, O=Vantargo, L=Dhaka, S=Dhaka, C=BD"
 
       - name: Build Signed Native Android APK & Play Store AAB
         working-directory: ./android
