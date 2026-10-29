@@ -21,7 +21,7 @@ const STORAGE_KEY = 'wizard_chess_3d_audio_settings_v1';
 
 const DEFAULT_SETTINGS: AudioHapticSettings = {
   soundEnabled: true,
-  soundVolume: 85,
+  soundVolume: 90,
   hapticsEnabled: true,
 };
 
@@ -159,7 +159,8 @@ class SoundAndHapticsManager {
   private getTargetAmbienceGain(): number {
     if (!this.shouldPlayAmbience()) return 0;
     const normalizedVol = Math.max(0, Math.min(100, this.settings.soundVolume)) / 100;
-    return normalizedVol * 0.24;
+    // Boosted from 0.24 to 0.46 (~90% stronger background music presence)
+    return normalizedVol * 0.46;
   }
 
   private shouldPlayAmbience(): boolean {
@@ -244,7 +245,7 @@ class SoundAndHapticsManager {
       fbRight.gain.value = 0.44;
 
       const wetGain = ctx.createGain();
-      wetGain.gain.value = 0.68;
+      wetGain.gain.value = 0.82;
 
       echoInput.connect(highpassNave);
       highpassNave.connect(delayLeft);
@@ -283,19 +284,19 @@ class SoundAndHapticsManager {
 
     try {
       const droneBus = ctx.createGain();
-      droneBus.gain.value = 0.16;
+      droneBus.gain.value = 0.25;
 
       const lfo = ctx.createOscillator();
       lfo.type = 'sine';
       lfo.frequency.value = 0.11;
       const lfoDepth = ctx.createGain();
-      lfoDepth.gain.value = 0.05;
+      lfoDepth.gain.value = 0.06;
       lfo.connect(lfoDepth);
       lfoDepth.connect(droneBus.gain);
 
       const lp = ctx.createBiquadFilter();
       lp.type = 'lowpass';
-      lp.frequency.value = 290;
+      lp.frequency.value = 310;
 
       const oscD2 = ctx.createOscillator();
       oscD2.type = 'sine';
@@ -305,7 +306,7 @@ class SoundAndHapticsManager {
       oscA2.type = 'triangle';
       oscA2.frequency.value = 110.0;
       const a2Gain = ctx.createGain();
-      a2Gain.gain.value = 0.35;
+      a2Gain.gain.value = 0.42;
 
       oscD2.connect(lp);
       oscA2.connect(a2Gain);
@@ -380,7 +381,7 @@ class SoundAndHapticsManager {
 
       const bellGain = ctx.createGain();
       bellGain.gain.setValueAtTime(0.0001, bellTime);
-      bellGain.gain.linearRampToValueAtTime(0.032, bellTime + 0.04);
+      bellGain.gain.linearRampToValueAtTime(0.058, bellTime + 0.04);
       bellGain.gain.exponentialRampToValueAtTime(0.0001, bellTime + 3.2);
 
       bellOsc.connect(bellGain);
@@ -402,8 +403,8 @@ class SoundAndHapticsManager {
 
     const formantSum = ctx.createGain();
     formantSum.gain.setValueAtTime(0.0001, startTime);
-    formantSum.gain.linearRampToValueAtTime(0.26, startTime + 0.32);
-    formantSum.gain.setValueAtTime(0.24, startTime + duration * 0.65);
+    formantSum.gain.linearRampToValueAtTime(0.38, startTime + 0.32);
+    formantSum.gain.setValueAtTime(0.35, startTime + duration * 0.65);
     formantSum.gain.exponentialRampToValueAtTime(0.0001, startTime + duration + 0.45);
 
     const f1 = ctx.createBiquadFilter();
@@ -424,9 +425,9 @@ class SoundAndHapticsManager {
     const f1Gain = ctx.createGain();
     f1Gain.gain.value = 1.0;
     const f2Gain = ctx.createGain();
-    f2Gain.gain.value = 0.52;
+    f2Gain.gain.value = 0.56;
     const f3Gain = ctx.createGain();
-    f3Gain.gain.value = 0.18;
+    f3Gain.gain.value = 0.22;
 
     f1.connect(f1Gain);
     f2.connect(f2Gain);
@@ -436,7 +437,7 @@ class SoundAndHapticsManager {
     f3Gain.connect(formantSum);
 
     const dryVocal = ctx.createGain();
-    dryVocal.gain.value = 0.32;
+    dryVocal.gain.value = 0.46;
     formantSum.connect(dryVocal);
     dryVocal.connect(this.ambienceMasterGain);
     formantSum.connect(this.cathedralEchoInput);

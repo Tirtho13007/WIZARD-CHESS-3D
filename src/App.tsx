@@ -14,6 +14,8 @@ import { LegalTabType, VantargoLegalModal } from './VantargoLegalModal';
 
 export type AIDifficultyLevel = 'beginner' | 'professional' | 'grandmaster';
 export type ChessGameMode = 'single' | 'local';
+export type GraphicsQualityTier = 'low' | 'medium' | 'high';
+export type ChessSideColor = 'w' | 'b';
 
 function formatStopwatch(totalSeconds: number): string {
   const clamped = Math.max(0, Math.floor(totalSeconds));
@@ -120,6 +122,9 @@ interface WizardChessWindowAPI {
   getAIDifficulty?: () => AIDifficultyLevel;
   setGameMode?: (mode: ChessGameMode) => ChessGameMode;
   getGameMode?: () => ChessGameMode;
+  setGraphicsQuality?: (tier: GraphicsQualityTier, persist?: boolean) => GraphicsQualityTier;
+  getGraphicsQuality?: () => GraphicsQualityTier;
+  getAutoDetectedGraphicsQuality?: () => GraphicsQualityTier;
   setGamePaused?: (paused: boolean) => boolean;
   startNewMatch?: (opts: {
     mode?: ChessGameMode;
@@ -134,6 +139,8 @@ interface WizardChessWindowAPI {
     currentTurn: string;
     playerColor: string;
     gameMode?: ChessGameMode;
+    graphicsQuality?: GraphicsQualityTier;
+    autoDetectedGraphicsQuality?: GraphicsQualityTier;
   };
 }
 
@@ -153,6 +160,17 @@ export default function App() {
   const [selectedGameMode, setSelectedGameMode] = useState<ChessGameMode>('single');
   const [selectedDifficulty, setSelectedDifficulty] = useState<AIDifficultyLevel>('professional');
   const [selectedSide, setSelectedSide] = useState<'w' | 'b'>('w');
+  const [graphicsQuality, setGraphicsQuality] = useState<GraphicsQualityTier>(() => {
+    try {
+      const saved = window.localStorage.getItem('wizard_chess_3d_graphics_quality_v1');
+      if (saved === 'low' || saved === 'medium' || saved === 'high') {
+        return saved;
+      }
+    } catch {
+      // ignore storage errors
+    }
+    return 'high';
+  });
   const [pauseModalOpen, setPauseModalOpen] = useState(false);
   const [settingsOnlyModal, setSettingsOnlyModal] = useState(false);
   const [legalModalTab, setLegalModalTab] = useState<LegalTabType | null>(null);
@@ -193,6 +211,11 @@ export default function App() {
     initUnityAdsBridge();
     initWizardChess();
     tryLockLandscape();
+
+    const engineTier = getEngineAPI()?.getGraphicsQuality?.();
+    if (engineTier === 'low' || engineTier === 'medium' || engineTier === 'high') {
+      setGraphicsQuality(engineTier);
+    }
 
     const params = new URLSearchParams(window.location.search);
     if (params.get('side') === 'black') {
@@ -237,6 +260,7 @@ export default function App() {
         moveHistoryCount: number;
         gameOver: boolean;
         gameMode?: ChessGameMode;
+        graphicsQuality?: GraphicsQualityTier;
       }>;
       if (custom.detail) {
         const isOver = Boolean(custom.detail.gameOver);
@@ -246,6 +270,13 @@ export default function App() {
         }
         if (custom.detail.gameMode === 'single' || custom.detail.gameMode === 'local') {
           setSelectedGameMode(custom.detail.gameMode);
+        }
+        if (
+          custom.detail.graphicsQuality === 'low' ||
+          custom.detail.graphicsQuality === 'medium' ||
+          custom.detail.graphicsQuality === 'high'
+        ) {
+          setGraphicsQuality(custom.detail.graphicsQuality);
         }
       }
     };
@@ -517,6 +548,12 @@ export default function App() {
     soundAndHaptics.playButtonClick();
     setSelectedGameMode(mode);
     getEngineAPI()?.setGameMode?.(mode);
+  };
+
+  const handleGraphicsQualityChange = (tier: GraphicsQualityTier) => {
+    soundAndHaptics.playButtonClick();
+    setGraphicsQuality(tier);
+    getEngineAPI()?.setGraphicsQuality?.(tier, true);
   };
 
   const isStopwatchRunning =
@@ -988,6 +1025,34 @@ export default function App() {
                   id="slider-sound-volume"
                   aria-label="Cathedral Chant and Sound Effects Volume"
                 />
+              </div>
+
+              {/* Graphics Quality Selector (Low / Medium / High — Auto-detected per GPU) */}
+              <div className="cathedral-volume-control">
+                <div className="cathedral-volume-header">
+                  <span className="cathedral-volume-label">✨ Graphics Quality</span>
+                  <span className="cathedral-volume-value">
+                    {graphicsQuality.toUpperCase()}
+                  </span>
+                </div>
+                <div
+                  className="minimal-pill-group three-col"
+                  id="graphics-quality-selector"
+                  role="group"
+                  aria-label="Graphics Quality"
+                >
+                  {(['low', 'medium', 'high'] as GraphicsQualityTier[]).map((tier) => (
+                    <button
+                      key={tier}
+                      type="button"
+                      id={`btn-graphics-${tier}`}
+                      className={`minimal-seg-btn ${graphicsQuality === tier ? 'active' : ''}`}
+                      onClick={() => handleGraphicsQualityChange(tier)}
+                    >
+                      {tier === 'low' ? 'Low' : tier === 'medium' ? 'Medium' : 'High'}
+                    </button>
+                  ))}
+                </div>
               </div>
 
               {matchStarted && (

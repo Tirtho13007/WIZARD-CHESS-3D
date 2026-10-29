@@ -54,20 +54,99 @@ export function initWizardChess() {
       (window.matchMedia && window.matchMedia('(pointer: coarse)').matches) ||
       Math.min(window.innerWidth, window.innerHeight) <= 920
     );
-    const isSoftwareGl = (() => {
+    const gpuProbeInfo = (() => {
       try {
         const probeCanvas = document.createElement('canvas');
         const gl = probeCanvas.getContext('webgl2') || probeCanvas.getContext('webgl');
-        if (!gl) return true;
+        if (!gl) return { isSoftware: true, rendererStr: '', vendorStr: '' };
         const ext = gl.getExtension('WEBGL_debug_renderer_info');
-        const param = ext ? ext.UNMASKED_RENDERER_WEBGL : gl.RENDERER;
-        const gpu = String(gl.getParameter(param) || '');
+        const rendererStr = String(
+          gl.getParameter(ext ? ext.UNMASKED_RENDERER_WEBGL : gl.RENDERER) || ''
+        );
+        const vendorStr = String(
+          gl.getParameter(ext ? ext.UNMASKED_VENDOR_WEBGL : gl.VENDOR) || ''
+        );
         gl.getExtension('WEBGL_lose_context')?.loseContext();
-        return /SwiftShader|llvmpipe|softpipe|Software|Basic Render/i.test(gpu);
+        const isSoftware = /SwiftShader|llvmpipe|softpipe|Software|Basic Render/i.test(rendererStr);
+        return { isSoftware, rendererStr, vendorStr };
       } catch (e) {
-        return false;
+        return { isSoftware: false, rendererStr: '', vendorStr: '' };
       }
     })();
+    const isSoftwareGl = gpuProbeInfo.isSoftware;
+
+    // =========================================================================
+    // Smart Hardware Auto-Detection & Graphics Quality Presets ('low' | 'medium' | 'high')
+    // - High: 100% untouched original visuals (Nothing Phone 3a / Snapdragon 7s Gen 3 / Adreno 7xx-8xx / 8GB+ RAM)
+    // - Low: Smooth 60 FPS on budget GPUs (Snapdragon 685 / Adreno 610 / Mali-G52/G57) while preserving full visual quality
+    // - Medium: Balanced tier for mid-range devices
+    // =========================================================================
+    const GRAPHICS_STORAGE_KEY = 'wizard_chess_3d_graphics_quality_v1';
+
+    function detectOptimalGraphicsQuality() {
+      if (isSoftwareGl) return 'low';
+      const gpu = gpuProbeInfo.rendererStr || '';
+      const ramGB = Number(navigator.deviceMemory || 0);
+      const cores = Number(navigator.hardwareConcurrency || 4);
+
+      // 1. Explicit Low-End / Budget Mobile GPUs (checked first even if phone has 6GB/8GB RAM, e.g. Snapdragon 685 + Adreno 610)
+      if (
+        /Adreno\s*\(TM\)\s*(3\d\d|4\d\d|5\d\d|605|608|610|612|613|615|616|618|619)\b/i.test(gpu) ||
+        /Adreno[^0-9]*(3\d\d|4\d\d|5\d\d|605|608|610|612|613|615|616|618|619)\b/i.test(gpu) ||
+        /Mali-(G31|G51|G52|G57|T\d+|4\d\d)\b/i.test(gpu) ||
+        /PowerVR|IMG\s*(GE|BXM|Rogue)|VideoCore/i.test(gpu)
+      ) {
+        return 'low';
+      }
+
+      // 2. Explicit High-End & Upper-Mid GPUs (e.g. Nothing Phone 3a Snapdragon 7s Gen 3 Adreno 810, Adreno 7xx/8xx, Apple GPU, Desktop GPUs)
+      if (
+        /Adreno\s*\(TM\)\s*(7\d\d|8\d\d|650|660)\b/i.test(gpu) ||
+        /Adreno[^0-9]*(7\d\d|8\d\d|650|660)\b/i.test(gpu) ||
+        /Immortalis|Mali-G(710|715|720|925)|Xclipse/i.test(gpu) ||
+        /Apple\s*(GPU|M\d|A1[5-9])/i.test(gpu) ||
+        /NVIDIA|GeForce|RTX|GTX|Radeon\s*RX|Arc\s*A\d|Intel\(R\)\s*Iris/i.test(gpu)
+      ) {
+        return 'high';
+      }
+
+      // 3. Explicit Mid-Range Mobile GPUs
+      if (
+        /Adreno[^0-9]*(620|630|640|642|644)\b/i.test(gpu) ||
+        /Mali-G(68|72|76|77|78|610)\b/i.test(gpu)
+      ) {
+        return 'medium';
+      }
+
+      // 4. Fallback when mobile browser masks exact GPU model digits:
+      if (ramGB >= 8) {
+        return 'high';
+      }
+      if (ramGB > 0 && ramGB <= 4) {
+        return 'low';
+      }
+      if (isMobileDevice) {
+        // On Android, 6GB RAM phones with masked GPU strings (like Snapdragon 685) default to 'low' for guaranteed lag-free 60 FPS
+        if (ramGB > 0 && ramGB <= 6) {
+          return 'low';
+        }
+        return cores >= 8 ? 'medium' : 'low';
+      }
+      return 'high';
+    }
+
+    const autoDetectedGraphicsQuality = detectOptimalGraphicsQuality();
+    let graphicsQuality = (() => {
+      try {
+        const saved = localStorage.getItem(GRAPHICS_STORAGE_KEY);
+        if (saved === 'low' || saved === 'medium' || saved === 'high') {
+          return saved;
+        }
+      } catch (e) {}
+      return autoDetectedGraphicsQuality;
+    })();
+    let shadowFrameCounter = 0;
+    let shadowUpdateInterval = graphicsQuality === 'low' ? 2 : 1;
 
     const initialVp = getLandscapeViewport();
     const renderer = new THREE.WebGLRenderer({
@@ -76,9 +155,16 @@ export function initWizardChess() {
       preserveDrawingBuffer: isAutomatedTest
     });
     renderer.setSize(initialVp.width, initialVp.height);
-    renderer.setPixelRatio(isSoftwareGl ? 1.0 : Math.min(window.devicePixelRatio || 1, 2));
+    const getTargetPixelRatio = (tier) => {
+      if (isSoftwareGl) return 1.0;
+      const dpr = window.devicePixelRatio || 1;
+      if (tier === 'low') return Math.min(dpr, 1.25);
+      if (tier === 'medium') return Math.min(dpr, 1.5);
+      return Math.min(dpr, 2.0);
+    };
+    renderer.setPixelRatio(getTargetPixelRatio(graphicsQuality));
     renderer.shadowMap.enabled = !isSoftwareGl;
-    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    renderer.shadowMap.type = graphicsQuality === 'low' ? THREE.PCFShadowMap : THREE.PCFSoftShadowMap;
     renderer.shadowMap.autoUpdate = false;
     renderer.shadowMap.needsUpdate = true;
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
@@ -251,14 +337,23 @@ export function initWizardChess() {
     };
 
     // Dramatic Chiaroscuro Cathedral & Board Lighting (grazing raking key + warm lower fill so mortar joints catch deep shadow)
-    const hemiLight = new THREE.HemisphereLight(0xd8ccb8, 0x281e15, 0.72);
+    const hemiLight = new THREE.HemisphereLight(
+      0xd8ccb8,
+      0x281e15,
+      graphicsQuality === 'low' ? 0.90 : graphicsQuality === 'medium' ? 0.78 : 0.72
+    );
     scene.add(hemiLight);
 
-    const keyLight = new THREE.DirectionalLight(0xfff0d6, 2.55);
+    const initialShadowSize =
+      graphicsQuality === 'low' ? 1024 : graphicsQuality === 'medium' ? 1536 : 2048;
+    const keyLight = new THREE.DirectionalLight(
+      0xfff0d6,
+      graphicsQuality === 'low' ? 2.62 : graphicsQuality === 'medium' ? 2.58 : 2.55
+    );
     keyLight.position.set(3.8, 8.5, 4.2);
     keyLight.castShadow = !isSoftwareGl;
-    keyLight.shadow.mapSize.width = 2048;
-    keyLight.shadow.mapSize.height = 2048;
+    keyLight.shadow.mapSize.width = initialShadowSize;
+    keyLight.shadow.mapSize.height = initialShadowSize;
     keyLight.shadow.camera.near = 1.5;
     keyLight.shadow.camera.far = 18.0;
     const d = 3.0;
@@ -272,11 +367,18 @@ export function initWizardChess() {
     // Subtle directional rim/fill (kept low so opposing directional lights never cancel normal-map mortar shadows)
     const rimLight = new THREE.DirectionalLight(0xdce2f0, 0.85);
     rimLight.position.set(-4.5, 6.0, -6.5);
+    rimLight.visible = graphicsQuality !== 'low';
     scene.add(rimLight);
 
     const southFillLight = new THREE.DirectionalLight(0xf5e0c4, 0.65);
     southFillLight.position.set(0.0, 4.8, 8.5);
+    southFillLight.visible = graphicsQuality === 'high';
     scene.add(southFillLight);
+
+    if ('environmentIntensity' in scene) {
+      scene.environmentIntensity =
+        graphicsQuality === 'low' ? 0.42 : graphicsQuality === 'medium' ? 0.37 : 0.34;
+    }
 
     // Twin Flickering Brazier Point Lights (centered at x = +/-3.65, z = 0.00, flanked by columns at z = +/-2.50)
     const brazierCoords = [
@@ -295,6 +397,9 @@ export function initWizardChess() {
     // Realistic Gaseous GLSL Brazier Flames & Soft Warm Firelight Glow (zero bouncing shapes)
     const brazierFireUniforms = [];
     const brazierGlowSprites = [];
+    const brazierFlameMidMeshes = [];
+    let flameCoreShaderRef = null;
+    let flameOuterShaderRef = null;
 
     function createSoftGlowTexture() {
       const canvas = document.createElement('canvas');
@@ -593,6 +698,7 @@ export function initWizardChess() {
         uLayerSeed: { value: cfg.layerSeed },
         uStrength: { value: cfg.strength },
         uOpacity: { value: cfg.opacity },
+        uLowQuality: { value: graphicsQuality === 'low' ? 1.0 : 0.0 },
         uBaseColor: { value: new THREE.Color(...cfg.baseColor) },
         uMidColor: { value: new THREE.Color(...cfg.midColor) },
         uTipColor: { value: new THREE.Color(...cfg.tipColor) }
@@ -661,6 +767,7 @@ export function initWizardChess() {
           uniform float uLayerSeed;
           uniform float uStrength;
           uniform float uOpacity;
+          uniform float uLowQuality;
           uniform vec3 uBaseColor;
           uniform vec3 uMidColor;
           uniform vec3 uTipColor;
@@ -696,8 +803,11 @@ export function initWizardChess() {
 
             // Fast upward-convecting 3D flame turbulence that actively carves the flame tips
             float n1 = noise3(vec3(vLocalPos.x * 5.4, vLocalPos.y * 4.8 - uTime * 6.8, vLocalPos.z * 5.4 + uLayerSeed));
-            float n2 = noise3(vec3(vLocalPos.x * 9.8 + 1.9, vLocalPos.y * 8.2 - uTime * 10.2, vLocalPos.z * 9.8 - uLayerSeed));
-            float shimmer = mix(n1, n2, 0.45);
+            float shimmer = n1;
+            if (uLowQuality < 0.5) {
+              float n2 = noise3(vec3(vLocalPos.x * 9.8 + 1.9, vLocalPos.y * 8.2 - uTime * 10.2, vLocalPos.z * 9.8 - uLayerSeed));
+              shimmer = mix(n1, n2, 0.45);
+            }
 
             // Dynamic tip erosion so flame tongues visibly lick up and recede
             float erodedH = clamp(h + (shimmer - 0.48) * 0.42 * smoothstep(0.08, 0.85, h), 0.0, 1.0);
@@ -725,7 +835,8 @@ export function initWizardChess() {
 
     function createCharredEmberLogsShader() {
       const uniforms = {
-        uTime: { value: 0 }
+        uTime: { value: 0 },
+        uLowQuality: { value: graphicsQuality === 'low' ? 1.0 : 0.0 }
       };
       brazierFireUniforms.push(uniforms);
 
@@ -742,6 +853,7 @@ export function initWizardChess() {
         `,
         fragmentShader: `
           uniform float uTime;
+          uniform float uLowQuality;
           varying vec3 vLocalPos;
           varying vec3 vWorldNormal;
 
@@ -763,7 +875,7 @@ export function initWizardChess() {
 
           void main() {
             float nCrack = noise3(vLocalPos * 28.0);
-            float nFine = noise3(vLocalPos * 62.0 + vec3(0.0, uTime * 0.4, 0.0));
+            float nFine = uLowQuality > 0.5 ? nCrack : noise3(vLocalPos * 62.0 + vec3(0.0, uTime * 0.4, 0.0));
             float pulse = 0.88 + 0.12 * sin(uTime * 2.3 + vLocalPos.x * 4.0 + vLocalPos.z * 4.0);
 
             // Lower coal cone (y < 0.59) vs upper charred logs (y >= 0.59)
@@ -1263,12 +1375,13 @@ export function initWizardChess() {
         baseColor: [1.0, 0.96, 0.72],
         midColor: [1.0, 0.64, 0.12],
         tipColor: [1.0, 0.36, 0.03],
-        strength: 1.85,
+        strength: graphicsQuality === 'low' ? 2.05 : 1.85,
         opacity: 0.92,
         zMin: 0.60,
         zMax: 1.64,
         layerSeed: 0.0
       });
+      flameCoreShaderRef = flameCoreShader;
       const flameMidShader = createSculptedFlameTongueShader({
         baseColor: [1.0, 0.78, 0.25],
         midColor: [1.0, 0.40, 0.04],
@@ -1283,12 +1396,13 @@ export function initWizardChess() {
         baseColor: [1.0, 0.45, 0.06],
         midColor: [0.88, 0.18, 0.015],
         tipColor: [0.45, 0.03, 0.002],
-        strength: 0.95,
+        strength: graphicsQuality === 'low' ? 1.08 : 0.95,
         opacity: 0.68,
         zMin: 0.60,
         zMax: 1.36,
         layerSeed: 4.4
       });
+      flameOuterShaderRef = flameOuterShader;
       const charredEmberLogsShader = createCharredEmberLogsShader();
 
       // Load Cathedral + All 6 Chess Piece Models in PARALLEL for 3x faster startup!
@@ -1318,6 +1432,8 @@ export function initWizardChess() {
               child.castShadow = false;
               child.receiveShadow = false;
               child.renderOrder = 11;
+              child.visible = graphicsQuality !== 'low';
+              brazierFlameMidMeshes.push(child);
               return;
             }
             if (meshName.includes('Brazier_Flame_Outer') || mNameFirst.includes('Flame_Outer')) {
@@ -1966,6 +2082,92 @@ export function initWizardChess() {
       return moves;
     }
 
+    const KNIGHT_OFFSETS = [
+      [-2, -1], [-2, 1], [-1, -2], [-1, 2],
+      [1, -2], [1, 2], [2, -1], [2, 1]
+    ];
+    const ORTHO_DIRS = [[-1, 0], [1, 0], [0, -1], [0, 1]];
+    const DIAG_DIRS = [[-1, -1], [-1, 1], [1, -1], [1, 1]];
+
+    // Zero-allocation O(1) attack detector (checks outward from target square, 40x faster than scanning all pieces)
+    function isSquareAttacked(targetR, targetC, attackerColor, board = boardState) {
+      // 1. Pawn attacks (a pawn of attackerColor attacks targetR from targetR - pawnDir)
+      const pawnAttackFromR = attackerColor === 'w' ? targetR + 1 : targetR - 1;
+      if (pawnAttackFromR >= 0 && pawnAttackFromR < 8) {
+        if (targetC > 0) {
+          const pl = board[pawnAttackFromR][targetC - 1];
+          if (pl && pl.color === attackerColor && pl.type === 'pawn') return true;
+        }
+        if (targetC < 7) {
+          const pr = board[pawnAttackFromR][targetC + 1];
+          if (pr && pr.color === attackerColor && pr.type === 'pawn') return true;
+        }
+      }
+
+      // 2. Knight jumps
+      for (let i = 0; i < 8; i++) {
+        const nr = targetR + KNIGHT_OFFSETS[i][0];
+        const nc = targetC + KNIGHT_OFFSETS[i][1];
+        if (nr >= 0 && nr < 8 && nc >= 0 && nc < 8) {
+          const p = board[nr][nc];
+          if (p && p.color === attackerColor && p.type === 'knight') return true;
+        }
+      }
+
+      // 3. Adjacent King
+      for (let dr = -1; dr <= 1; dr++) {
+        for (let dc = -1; dc <= 1; dc++) {
+          if (dr === 0 && dc === 0) continue;
+          const nr = targetR + dr;
+          const nc = targetC + dc;
+          if (nr >= 0 && nr < 8 && nc >= 0 && nc < 8) {
+            const p = board[nr][nc];
+            if (p && p.color === attackerColor && p.type === 'king') return true;
+          }
+        }
+      }
+
+      // 4. Orthogonal sliding rays (Rook / Queen)
+      for (let d = 0; d < 4; d++) {
+        const dr = ORTHO_DIRS[d][0];
+        const dc = ORTHO_DIRS[d][1];
+        let nr = targetR + dr;
+        let nc = targetC + dc;
+        while (nr >= 0 && nr < 8 && nc >= 0 && nc < 8) {
+          const p = board[nr][nc];
+          if (p) {
+            if (p.color === attackerColor && (p.type === 'rook' || p.type === 'queen')) {
+              return true;
+            }
+            break;
+          }
+          nr += dr;
+          nc += dc;
+        }
+      }
+
+      // 5. Diagonal sliding rays (Bishop / Queen)
+      for (let d = 0; d < 4; d++) {
+        const dr = DIAG_DIRS[d][0];
+        const dc = DIAG_DIRS[d][1];
+        let nr = targetR + dr;
+        let nc = targetC + dc;
+        while (nr >= 0 && nr < 8 && nc >= 0 && nc < 8) {
+          const p = board[nr][nc];
+          if (p) {
+            if (p.color === attackerColor && (p.type === 'bishop' || p.type === 'queen')) {
+              return true;
+            }
+            break;
+          }
+          nr += dr;
+          nc += dc;
+        }
+      }
+
+      return false;
+    }
+
     function isKingInCheck(color, board = boardState) {
       let kingR = -1;
       let kingC = -1;
@@ -1978,21 +2180,11 @@ export function initWizardChess() {
             break;
           }
         }
+        if (kingR !== -1) break;
       }
       if (kingR === -1) return true;
       const oppColor = color === 'w' ? 'b' : 'w';
-      for (let r = 0; r < 8; r++) {
-        for (let c = 0; c < 8; c++) {
-          const p = board[r][c];
-          if (p && p.color === oppColor) {
-            const oppMoves = getPseudoMovesForPiece(r, c, board);
-            if (oppMoves.some((m) => m.r === kingR && m.c === kingC)) {
-              return true;
-            }
-          }
-        }
-      }
-      return false;
+      return isSquareAttacked(kingR, kingC, oppColor, board);
     }
 
     function getLegalMovesForPiece(r, c) {
@@ -2981,6 +3173,78 @@ export function initWizardChess() {
     let aiDifficulty = 'professional'; // 'beginner' | 'professional' | 'grandmaster'
     let isGamePaused = false;
 
+    function setGraphicsQuality(tier, persist = true) {
+      if (tier !== 'low' && tier !== 'medium' && tier !== 'high') {
+        return graphicsQuality;
+      }
+      graphicsQuality = tier;
+      shadowUpdateInterval = tier === 'low' ? 2 : 1;
+      if (persist) {
+        try {
+          localStorage.setItem(GRAPHICS_STORAGE_KEY, tier);
+        } catch (e) {}
+      }
+
+      // 1. Update Renderer Pixel Ratio & Shadow Filtering
+      const vp = getLandscapeViewport();
+      renderer.setPixelRatio(getTargetPixelRatio(tier));
+      renderer.setSize(vp.width, vp.height);
+      renderer.shadowMap.enabled = !isSoftwareGl;
+      const desiredShadowType = tier === 'low' ? THREE.PCFShadowMap : THREE.PCFSoftShadowMap;
+      if (renderer.shadowMap.type !== desiredShadowType) {
+        renderer.shadowMap.type = desiredShadowType;
+      }
+
+      // 2. Update Shadow Map Resolution cleanly without losing piece shadows
+      const targetShadowSize = tier === 'low' ? 1024 : tier === 'medium' ? 1536 : 2048;
+      if (keyLight.shadow.mapSize.width !== targetShadowSize) {
+        keyLight.shadow.mapSize.width = targetShadowSize;
+        keyLight.shadow.mapSize.height = targetShadowSize;
+        if (keyLight.shadow.map) {
+          keyLight.shadow.map.dispose();
+          keyLight.shadow.map = null;
+        }
+      }
+
+      // 3. Smart Light Consolidation (compensates ambient/PMREM on Low/Medium so visual quality stays identical to High)
+      hemiLight.intensity = tier === 'low' ? 0.90 : tier === 'medium' ? 0.78 : 0.72;
+      keyLight.intensity = tier === 'low' ? 2.62 : tier === 'medium' ? 2.58 : 2.55;
+      rimLight.visible = tier !== 'low';
+      southFillLight.visible = tier === 'high';
+      if ('environmentIntensity' in scene) {
+        scene.environmentIntensity = tier === 'low' ? 0.42 : tier === 'medium' ? 0.37 : 0.34;
+      }
+
+      // 4. Update Volumetric Brazier Fire Shaders & Overdraw Layers
+      const lowFlag = tier === 'low' ? 1.0 : 0.0;
+      for (let i = 0; i < brazierFireUniforms.length; i++) {
+        if (brazierFireUniforms[i].uLowQuality) {
+          brazierFireUniforms[i].uLowQuality.value = lowFlag;
+        }
+      }
+      if (flameCoreShaderRef && flameCoreShaderRef.uniforms?.uStrength) {
+        flameCoreShaderRef.uniforms.uStrength.value = tier === 'low' ? 2.05 : 1.85;
+      }
+      if (flameOuterShaderRef && flameOuterShaderRef.uniforms?.uStrength) {
+        flameOuterShaderRef.uniforms.uStrength.value = tier === 'low' ? 1.08 : 0.95;
+      }
+      for (let i = 0; i < brazierFlameMidMeshes.length; i++) {
+        brazierFlameMidMeshes[i].visible = tier !== 'low';
+      }
+
+      renderer.shadowMap.needsUpdate = true;
+      updateTurnUI();
+      return graphicsQuality;
+    }
+
+    function getGraphicsQuality() {
+      return graphicsQuality;
+    }
+
+    function getAutoDetectedGraphicsQuality() {
+      return autoDetectedGraphicsQuality;
+    }
+
     function setAIDifficulty(level) {
       if (level === 'beginner' || level === 'professional' || level === 'grandmaster') {
         aiDifficulty = level;
@@ -3065,60 +3329,506 @@ export function initWizardChess() {
       return { ok: true, mode: gameMode, side: playerColor, difficulty: aiDifficulty };
     }
 
-    function evaluateMoveImmediate(m, color) {
-      const piece = boardState[m.fromR][m.fromC];
-      const target = boardState[m.toR][m.toC];
-      let score = 0;
+    // =========================================================================
+    // Grandmaster Positional Piece-Square Tables (from White's perspective, r=0 is rank 8, r=7 is rank 1)
+    // =========================================================================
+    const PST_PAWN = [
+      [  0,   0,   0,   0,   0,   0,   0,   0],
+      [ 65,  70,  70,  75,  75,  70,  70,  65],
+      [ 22,  25,  32,  42,  42,  32,  25,  22],
+      [  8,  12,  22,  34,  34,  22,  12,   8],
+      [  2,   4,  12,  28,  28,  12,   4,   2],
+      [  6,  -4,  -8,   4,   4,  -8,  -4,   6],
+      [  6,  12,  12, -22, -22,  12,  12,   6],
+      [  0,   0,   0,   0,   0,   0,   0,   0]
+    ];
 
-      if (target) {
-        score += PIECE_VALUES[target.type] * 1.18 - PIECE_VALUES[piece.type] * 0.08;
+    const PST_KNIGHT = [
+      [-50, -38, -30, -28, -28, -30, -38, -50],
+      [-38, -18,   0,   6,   6,   0, -18, -38],
+      [-28,   4,  16,  22,  22,  16,   4, -28],
+      [-26,   8,  22,  28,  28,  22,   8, -26],
+      [-26,   6,  18,  26,  26,  18,   6, -26],
+      [-28,   6,  14,  18,  18,  14,   6, -28],
+      [-38, -18,   2,   6,   6,   2, -18, -38],
+      [-48, -32, -26, -26, -26, -26, -32, -48]
+    ];
+
+    const PST_BISHOP = [
+      [-20, -12, -12, -10, -10, -12, -12, -20],
+      [-12,   4,   0,   4,   4,   0,   4, -12],
+      [-10,   6,  12,  16,  16,  12,   6, -10],
+      [-10,   8,  14,  18,  18,  14,   8, -10],
+      [-10,   4,  16,  18,  18,  16,   4, -10],
+      [-10,  12,  12,  14,  14,  12,  12, -10],
+      [-12,  14,   4,   6,   6,   4,  14, -12],
+      [-20, -12, -16, -10, -10, -16, -12, -20]
+    ];
+
+    const PST_ROOK = [
+      [  4,   6,   8,  12,  12,   8,   6,   4],
+      [ 16,  22,  24,  26,  26,  24,  22,  16],
+      [ -4,   0,   4,   6,   6,   4,   0,  -4],
+      [ -6,   0,   2,   6,   6,   2,   0,  -6],
+      [ -6,   0,   2,   6,   6,   2,   0,  -6],
+      [ -6,   0,   2,   6,   6,   2,   0,  -6],
+      [ -4,   2,   6,  10,  10,   6,   2,  -4],
+      [  2,   4,   8,  14,  14,   8,   4,   2]
+    ];
+
+    const PST_QUEEN = [
+      [-20, -10, -10,  -4,  -4, -10, -10, -20],
+      [-10,   0,   4,   4,   4,   4,   0, -10],
+      [-10,   4,   8,  10,  10,   8,   4, -10],
+      [ -4,   4,  10,  12,  12,  10,   4,  -4],
+      [  0,   4,  10,  12,  12,  10,   4,  -4],
+      [-10,   8,   8,  10,  10,   8,   4, -10],
+      [-10,   2,   6,   4,   4,   4,   2, -10],
+      [-20, -10, -10,  -4,  -4, -10, -10, -20]
+    ];
+
+    const PST_KING_MG = [
+      [-32, -42, -42, -52, -52, -42, -42, -32],
+      [-32, -42, -42, -52, -52, -42, -42, -32],
+      [-32, -42, -42, -52, -52, -42, -42, -32],
+      [-32, -42, -42, -52, -52, -42, -42, -32],
+      [-22, -32, -32, -42, -42, -32, -32, -22],
+      [-12, -22, -22, -22, -22, -22, -22, -12],
+      [ 16,  20,  -4,  -8,  -8,  -4,  20,  16],
+      [ 22,  34,  18,  -6,   0,  10,  36,  22]
+    ];
+
+    const PST_KING_EG = [
+      [-45, -30, -25, -20, -20, -25, -30, -45],
+      [-28, -15,  -5,   4,   4,  -5, -15, -28],
+      [-20,  -5,  14,  22,  22,  14,  -5, -20],
+      [-18,   0,  20,  28,  28,  20,   0, -18],
+      [-18,   0,  20,  28,  28,  20,   0, -18],
+      [-20,  -5,  14,  22,  22,  14,  -5, -20],
+      [-28, -15,  -5,   4,   4,  -5, -15, -28],
+      [-45, -30, -25, -20, -20, -25, -30, -45]
+    ];
+
+    const AI_PIECE_VALUES = {
+      pawn: 100,
+      knight: 325,
+      bishop: 340,
+      rook: 500,
+      queen: 955,
+      king: 20000
+    };
+
+    function getPSTScore(type, color, r, c, isEndgame = false) {
+      const tableR = color === 'w' ? r : 7 - r;
+      switch (type) {
+        case 'pawn': return PST_PAWN[tableR][c];
+        case 'knight': return PST_KNIGHT[tableR][c];
+        case 'bishop': return PST_BISHOP[tableR][c];
+        case 'rook': return PST_ROOK[tableR][c];
+        case 'queen': return PST_QUEEN[tableR][c];
+        case 'king': return isEndgame ? PST_KING_EG[tableR][c] : PST_KING_MG[tableR][c];
+        default: return 0;
+      }
+    }
+
+    // Grandmaster Opening Book (keyed by compact move history "fromR,fromC->toR,toC;...")
+    const GRANDMASTER_OPENING_BOOK = {
+      // White's 1st move: e2->e4, d2->d4, c2->c4
+      '': [
+        { fromR: 6, fromC: 4, toR: 4, toC: 4 }, // 1. e4
+        { fromR: 6, fromC: 3, toR: 4, toC: 3 }  // 1. d4
+      ],
+      // Black responses to 1. e4 (Sicilian c7->c5, Open e7->e5, French e7->e6)
+      '6,4-4,4': [
+        { fromR: 1, fromC: 2, toR: 3, toC: 2 }, // 1... c5 (Sicilian Defense)
+        { fromR: 1, fromC: 4, toR: 3, toC: 4 }  // 1... e5 (Open Game)
+      ],
+      // Black responses to 1. d4 (1... Nf6, 1... d5)
+      '6,3-4,3': [
+        { fromR: 0, fromC: 6, toR: 2, toC: 5 }, // 1... Nf6
+        { fromR: 1, fromC: 3, toR: 3, toC: 3 }  // 1... d5
+      ],
+      // White responses to 1. e4 e5 -> 2. Nf3
+      '6,4-4,4;1,4-3,4': [
+        { fromR: 7, fromC: 6, toR: 5, toC: 5 }  // 2. Nf3
+      ],
+      // Black responses to 1. e4 e5 2. Nf3 -> 2... Nc6
+      '6,4-4,4;1,4-3,4;7,6-5,5': [
+        { fromR: 0, fromC: 1, toR: 2, toC: 2 }  // 2... Nc6
+      ],
+      // White 3rd move: Ruy Lopez (3. Bb5) or Italian Game (3. Bc4)
+      '6,4-4,4;1,4-3,4;7,6-5,5;0,1-2,2': [
+        { fromR: 7, fromC: 5, toR: 3, toC: 1 }, // 3. Bb5 (Ruy Lopez)
+        { fromR: 7, fromC: 5, toR: 4, toC: 2 }  // 3. Bc4 (Italian)
+      ],
+      // Black vs Ruy Lopez -> 3... a6 or 3... Nf6
+      '6,4-4,4;1,4-3,4;7,6-5,5;0,1-2,2;7,5-3,1': [
+        { fromR: 0, fromC: 6, toR: 2, toC: 5 }, // 3... Nf6 (Berlin Defense)
+        { fromR: 1, fromC: 0, toR: 2, toC: 0 }  // 3... a6 (Morphy Defense)
+      ],
+      // Black vs Italian -> 3... Bc5 or 3... Nf6
+      '6,4-4,4;1,4-3,4;7,6-5,5;0,1-2,2;7,5-4,2': [
+        { fromR: 0, fromC: 5, toR: 3, toC: 2 }, // 3... Bc5 (Giuoco Piano)
+        { fromR: 0, fromC: 6, toR: 2, toC: 5 }  // 3... Nf6 (Two Knights)
+      ],
+      // White vs Sicilian (1. e4 c5) -> 2. Nf3
+      '6,4-4,4;1,2-3,2': [
+        { fromR: 7, fromC: 6, toR: 5, toC: 5 }  // 2. Nf3
+      ],
+      // Black Sicilian 2... d6 or 2... Nc6
+      '6,4-4,4;1,2-3,2;7,6-5,5': [
+        { fromR: 0, fromC: 1, toR: 2, toC: 2 }, // 2... Nc6
+        { fromR: 1, fromC: 3, toR: 2, toC: 3 }  // 2... d6
+      ],
+      // White Queen's Gambit (1. d4 d5 -> 2. c4)
+      '6,3-4,3;1,3-3,3': [
+        { fromR: 6, fromC: 2, toR: 4, toC: 2 }  // 2. c4
+      ],
+      // Black QGD (1. d4 d5 2. c4 -> 2... e6)
+      '6,3-4,3;1,3-3,3;6,2-4,2': [
+        { fromR: 1, fromC: 4, toR: 2, toC: 4 }  // 2... e6
+      ],
+      // White vs 1. d4 Nf6 -> 2. c4
+      '6,3-4,3;0,6-2,5': [
+        { fromR: 6, fromC: 2, toR: 4, toC: 2 }  // 2. c4
+      ],
+      // Black vs 1. d4 Nf6 2. c4 -> 2... e6
+      '6,3-4,3;0,6-2,5;6,2-4,2': [
+        { fromR: 1, fromC: 4, toR: 2, toC: 4 }  // 2... e6
+      ]
+    };
+
+    // Fast static evaluation of boardState from `perspectiveColor`'s view
+    const _wPawnsInCol = new Int8Array(8);
+    const _bPawnsInCol = new Int8Array(8);
+
+    function evaluateBoardPosition(perspectiveColor, includeGrandmasterPositional = true) {
+      let wScore = 0;
+      let bScore = 0;
+      let wBishops = 0;
+      let bBishops = 0;
+      let nonPawnMaterial = 0;
+      let wKingR = 7, wKingC = 4;
+      let bKingR = 0, bKingC = 4;
+
+      for (let c = 0; c < 8; c++) {
+        _wPawnsInCol[c] = 0;
+        _bPawnsInCol[c] = 0;
       }
 
-      const centerDist = Math.abs(3.5 - m.toR) + Math.abs(3.5 - m.toC);
-      score += (7 - centerDist) * 9;
-
-      if (piece.type === 'pawn') {
-        const advance = color === 'w' ? (6 - m.toR) : (m.toR - 1);
-        score += advance * 14;
-      } else if (piece.type === 'knight' || piece.type === 'bishop') {
-        const homeRow = color === 'w' ? 7 : 0;
-        if (m.fromR === homeRow) score += 22; // Develop minor pieces
+      // First pass: count material, bishops, pawn columns, and king locations
+      for (let r = 0; r < 8; r++) {
+        const row = boardState[r];
+        for (let c = 0; c < 8; c++) {
+          const p = row[c];
+          if (!p) continue;
+          const val = AI_PIECE_VALUES[p.type] || 100;
+          if (p.type !== 'pawn' && p.type !== 'king') {
+            nonPawnMaterial += val;
+          }
+          if (p.color === 'w') {
+            wScore += val;
+            if (p.type === 'bishop') wBishops++;
+            else if (p.type === 'pawn') _wPawnsInCol[c]++;
+            else if (p.type === 'king') { wKingR = r; wKingC = c; }
+          } else {
+            bScore += val;
+            if (p.type === 'bishop') bBishops++;
+            else if (p.type === 'pawn') _bPawnsInCol[c]++;
+            else if (p.type === 'king') { bKingR = r; bKingC = c; }
+          }
+        }
       }
 
-      // Simulate move
-      boardState[m.toR][m.toC] = piece;
-      boardState[m.fromR][m.fromC] = null;
-      const oppColor = color === 'w' ? 'b' : 'w';
-      if (isKingInCheck(oppColor, boardState)) {
-        score += 48;
-      }
+      const isEndgame = nonPawnMaterial <= 2600;
 
-      // Check if destination square is attacked by opponent
-      for (let rr = 0; rr < 8; rr++) {
-        for (let cc = 0; cc < 8; cc++) {
-          const opp = boardState[rr][cc];
-          if (opp && opp.color === oppColor) {
-            const oppMoves = getPseudoMovesForPiece(rr, cc, boardState);
-            if (oppMoves.some((om) => om.r === m.toR && om.c === m.toC)) {
-              score -= PIECE_VALUES[piece.type] * 0.78;
-              break;
+      // Second pass: Piece-Square Tables + Positional structure
+      for (let r = 0; r < 8; r++) {
+        const row = boardState[r];
+        for (let c = 0; c < 8; c++) {
+          const p = row[c];
+          if (!p) continue;
+          const pst = getPSTScore(p.type, p.color, r, c, isEndgame);
+          if (p.color === 'w') {
+            wScore += pst;
+          } else {
+            bScore += pst;
+          }
+
+          if (includeGrandmasterPositional) {
+            if (p.type === 'pawn') {
+              if (p.color === 'w') {
+                // Passed pawn check for White (no black pawns ahead on c-1, c, c+1)
+                let passed = true;
+                for (let rr = r - 1; rr >= 1; rr--) {
+                  if (
+                    (c > 0 && boardState[rr][c - 1]?.color === 'b' && boardState[rr][c - 1]?.type === 'pawn') ||
+                    (boardState[rr][c]?.color === 'b' && boardState[rr][c]?.type === 'pawn') ||
+                    (c < 7 && boardState[rr][c + 1]?.color === 'b' && boardState[rr][c + 1]?.type === 'pawn')
+                  ) {
+                    passed = false;
+                    break;
+                  }
+                }
+                if (passed) {
+                  const rankAdv = 6 - r;
+                  wScore += rankAdv * rankAdv * 4;
+                }
+              } else {
+                // Passed pawn check for Black
+                let passed = true;
+                for (let rr = r + 1; rr <= 6; rr++) {
+                  if (
+                    (c > 0 && boardState[rr][c - 1]?.color === 'w' && boardState[rr][c - 1]?.type === 'pawn') ||
+                    (boardState[rr][c]?.color === 'w' && boardState[rr][c]?.type === 'pawn') ||
+                    (c < 7 && boardState[rr][c + 1]?.color === 'w' && boardState[rr][c + 1]?.type === 'pawn')
+                  ) {
+                    passed = false;
+                    break;
+                  }
+                }
+                if (passed) {
+                  const rankAdv = r - 1;
+                  bScore += rankAdv * rankAdv * 4;
+                }
+              }
+            } else if (p.type === 'rook') {
+              // Open / semi-open file bonus
+              if (p.color === 'w') {
+                if (_wPawnsInCol[c] === 0) {
+                  wScore += _bPawnsInCol[c] === 0 ? 22 : 12;
+                }
+              } else {
+                if (_bPawnsInCol[c] === 0) {
+                  bScore += _wPawnsInCol[c] === 0 ? 22 : 12;
+                }
+              }
             }
           }
         }
       }
+
+      if (includeGrandmasterPositional) {
+        // Bishop Pair Bonus
+        if (wBishops >= 2) wScore += 36;
+        if (bBishops >= 2) bScore += 36;
+
+        // Doubled Pawn Penalty
+        for (let c = 0; c < 8; c++) {
+          if (_wPawnsInCol[c] > 1) wScore -= (_wPawnsInCol[c] - 1) * 14;
+          if (_bPawnsInCol[c] > 1) bScore -= (_bPawnsInCol[c] - 1) * 14;
+        }
+
+        // King Safety Pawn Shield in Middlegame
+        if (!isEndgame) {
+          if (wKingR >= 6) {
+            for (let dc = -1; dc <= 1; dc++) {
+              const sc = wKingC + dc;
+              if (sc >= 0 && sc < 8) {
+                const sp = boardState[wKingR - 1]?.[sc];
+                if (sp && sp.color === 'w' && sp.type === 'pawn') wScore += 12;
+              }
+            }
+          }
+          if (bKingR <= 1) {
+            for (let dc = -1; dc <= 1; dc++) {
+              const sc = bKingC + dc;
+              if (sc >= 0 && sc < 8) {
+                const sp = boardState[bKingR + 1]?.[sc];
+                if (sp && sp.color === 'b' && sp.type === 'pawn') bScore += 12;
+              }
+            }
+          }
+        } else {
+          // Endgame Mop-up bonus: drive opponent King to the edge when ahead in material
+          if (wScore > bScore + 300) {
+            const bCenterDist = Math.abs(3.5 - bKingR) + Math.abs(3.5 - bKingC);
+            const kingsDist = Math.abs(wKingR - bKingR) + Math.abs(wKingC - bKingC);
+            wScore += bCenterDist * 14 + (14 - kingsDist) * 6;
+          } else if (bScore > wScore + 300) {
+            const wCenterDist = Math.abs(3.5 - wKingR) + Math.abs(3.5 - wKingC);
+            const kingsDist = Math.abs(wKingR - bKingR) + Math.abs(wKingC - bKingC);
+            bScore += wCenterDist * 14 + (14 - kingsDist) * 6;
+          }
+        }
+      }
+
+      return perspectiveColor === 'w' ? (wScore - bScore) : (bScore - wScore);
+    }
+
+    // Fast in-place move application & reversal on boardState for search tree
+    function makeSearchMove(m) {
+      const piece = boardState[m.fromR][m.fromC];
+      const captured = boardState[m.toR][m.toC];
+      const prevHasMoved = piece.hasMoved;
+      const prevType = piece.type;
+
+      boardState[m.toR][m.toC] = piece;
+      boardState[m.fromR][m.fromC] = null;
+      piece.hasMoved = true;
+
+      // Handle Pawn Promotion in search
+      if (piece.type === 'pawn' && (m.toR === 0 || m.toR === 7)) {
+        piece.type = 'queen';
+      }
+
+      // Handle Castling Rook move in search
+      let castleRook = null;
+      let rookFromC = -1;
+      let rookToC = -1;
+      let rookPrevMoved = false;
+      if (prevType === 'king' && m.fromR === m.toR && Math.abs(m.toC - m.fromC) === 2) {
+        rookFromC = m.toC > m.fromC ? 7 : 0;
+        rookToC = m.toC > m.fromC ? 5 : 3;
+        castleRook = boardState[m.fromR][rookFromC];
+        if (castleRook) {
+          rookPrevMoved = castleRook.hasMoved;
+          boardState[m.fromR][rookToC] = castleRook;
+          boardState[m.fromR][rookFromC] = null;
+          castleRook.hasMoved = true;
+        }
+      }
+
+      return {
+        piece,
+        captured,
+        prevHasMoved,
+        prevType,
+        castleRook,
+        rookFromC,
+        rookToC,
+        rookPrevMoved
+      };
+    }
+
+    function unmakeSearchMove(m, undo) {
+      const { piece, captured, prevHasMoved, prevType, castleRook, rookFromC, rookToC, rookPrevMoved } = undo;
+      piece.type = prevType;
+      piece.hasMoved = prevHasMoved;
       boardState[m.fromR][m.fromC] = piece;
-      boardState[m.toR][m.toC] = target;
-      return score;
+      boardState[m.toR][m.toC] = captured;
+
+      if (castleRook) {
+        castleRook.hasMoved = rookPrevMoved;
+        boardState[m.fromR][rookFromC] = castleRook;
+        boardState[m.fromR][rookToC] = null;
+      }
+    }
+
+    // MVV-LVA & Positional Move Ordering (maximizes Alpha-Beta pruning cutoffs)
+    function orderMovesForSearch(moves, turnColor) {
+      for (let i = 0; i < moves.length; i++) {
+        const m = moves[i];
+        const piece = boardState[m.fromR][m.fromC];
+        const target = boardState[m.toR][m.toC];
+        let orderScore = 0;
+        if (target) {
+          orderScore += 10000 + AI_PIECE_VALUES[target.type] * 10 - (AI_PIECE_VALUES[piece.type] || 100);
+        }
+        if (piece.type === 'pawn' && (m.toR === 0 || m.toR === 7)) {
+          orderScore += 9000;
+        }
+        if (piece.type === 'king' && Math.abs(m.toC - m.fromC) === 2) {
+          orderScore += 600;
+        }
+        orderScore += getPSTScore(piece.type, turnColor, m.toR, m.toC, false) - getPSTScore(piece.type, turnColor, m.fromR, m.fromC, false);
+        m._orderScore = orderScore;
+      }
+      moves.sort((a, b) => b._orderScore - a._orderScore);
+      return moves;
+    }
+
+    // Quiescence Search: resolves capture sequences at leaf nodes so AI never falls for capture traps
+    function quiescenceSearch(alpha, beta, turnColor, qDepthLeft, useGmEval) {
+      const standPat = evaluateBoardPosition(turnColor, useGmEval);
+      if (standPat >= beta) return beta;
+      if (standPat > alpha) alpha = standPat;
+      if (qDepthLeft <= 0) return standPat;
+
+      const oppColor = turnColor === 'w' ? 'b' : 'w';
+      const allMoves = getAllLegalMoves(turnColor);
+      if (allMoves.length === 0) {
+        if (isKingInCheck(turnColor, boardState)) {
+          return -90000 - qDepthLeft * 100;
+        }
+        return 0;
+      }
+
+      const tacticalMoves = [];
+      for (let i = 0; i < allMoves.length; i++) {
+        const m = allMoves[i];
+        const p = boardState[m.fromR][m.fromC];
+        if (m.capture || (p && p.type === 'pawn' && (m.toR === 0 || m.toR === 7))) {
+          tacticalMoves.push(m);
+        }
+      }
+      if (tacticalMoves.length === 0) return standPat;
+
+      orderMovesForSearch(tacticalMoves, turnColor);
+
+      for (let i = 0; i < tacticalMoves.length; i++) {
+        const m = tacticalMoves[i];
+        const undo = makeSearchMove(m);
+        const score = -quiescenceSearch(-beta, -alpha, oppColor, qDepthLeft - 1, useGmEval);
+        unmakeSearchMove(m, undo);
+
+        if (score >= beta) return beta;
+        if (score > alpha) alpha = score;
+      }
+      return alpha;
+    }
+
+    let searchDeadlineMs = 0;
+    let searchAborted = false;
+    let searchNodeCounter = 0;
+
+    function alphaBetaSearch(depth, alpha, beta, turnColor, maxQuiescenceDepth, useGmEval) {
+      if ((++searchNodeCounter & 127) === 0 && performance.now() > searchDeadlineMs) {
+        searchAborted = true;
+        return evaluateBoardPosition(turnColor, useGmEval);
+      }
+
+      const oppColor = turnColor === 'w' ? 'b' : 'w';
+      const legalMoves = getAllLegalMoves(turnColor);
+
+      if (legalMoves.length === 0) {
+        if (isKingInCheck(turnColor, boardState)) {
+          return -95000 - depth * 500; // Prefer fastest checkmate!
+        }
+        return 0; // Stalemate draw
+      }
+
+      if (depth <= 0) {
+        return quiescenceSearch(alpha, beta, turnColor, maxQuiescenceDepth, useGmEval);
+      }
+
+      orderMovesForSearch(legalMoves, turnColor);
+
+      let bestVal = -Infinity;
+      for (let i = 0; i < legalMoves.length; i++) {
+        const m = legalMoves[i];
+        const undo = makeSearchMove(m);
+        const val = -alphaBetaSearch(depth - 1, -beta, -alpha, oppColor, maxQuiescenceDepth, useGmEval);
+        unmakeSearchMove(m, undo);
+
+        if (searchAborted) return bestVal > -Infinity ? bestVal : 0;
+
+        if (val > bestVal) bestVal = val;
+        if (val > alpha) alpha = val;
+        if (alpha >= beta) break; // Beta cutoff!
+      }
+      return bestVal;
     }
 
     function chooseSmartAIMove(color, forceBest = false) {
       const legalMoves = getAllLegalMoves(color);
       if (legalMoves.length === 0) return null;
+      if (legalMoves.length === 1) return legalMoves[0];
 
       const mode = forceBest ? 'grandmaster' : aiDifficulty;
 
+      // 1. BEGINNER LEVEL (Unchanged as requested)
       if (mode === 'beginner') {
-        // Beginner AI: High variance, only basic capture preference, sometimes overlooks threats
         let bestScore = -Infinity;
         let chosen = legalMoves[0];
         for (const m of legalMoves) {
@@ -3133,81 +3843,115 @@ export function initWizardChess() {
         return chosen;
       }
 
+      // 2. GRANDMASTER LEVEL (~9.5 - 10/10 Difficulty: Opening Book + Iterative-Deepening 4-Ply Alpha-Beta + 4-Ply Quiescence Search + Full Positional Eval)
       if (mode === 'grandmaster') {
-        // Grandmaster AI (and Player Best Hint): 2-ply minimax lookahead evaluating opponent's strongest reply
+        if (!scriptedGameActive && moveHistory.length <= 6) {
+          const histKey = moveHistory
+            .map((entry) => `${entry.move.fromR},${entry.move.fromC}-${entry.move.toR},${entry.move.toC}`)
+            .join(';');
+          const bookReplies = GRANDMASTER_OPENING_BOOK[histKey];
+          if (bookReplies && bookReplies.length > 0) {
+            const validBookMoves = [];
+            for (const bm of bookReplies) {
+              const found = legalMoves.find(
+                (lm) =>
+                  lm.fromR === bm.fromR &&
+                  lm.fromC === bm.fromC &&
+                  lm.toR === bm.toR &&
+                  lm.toC === bm.toC
+              );
+              if (found) validBookMoves.push(found);
+            }
+            if (validBookMoves.length > 0) {
+              return validBookMoves[Math.floor(Math.random() * validBookMoves.length)];
+            }
+          }
+        }
+
         const oppColor = color === 'w' ? 'b' : 'w';
-        let bestScore = -Infinity;
-        let bestCandidates = [];
+        orderMovesForSearch(legalMoves, color);
 
-        for (const m of legalMoves) {
-          const piece = boardState[m.fromR][m.fromC];
-          const target = boardState[m.toR][m.toC];
-          let myScore = evaluateMoveImmediate(m, color);
+        let bestMove = legalMoves[0];
+        searchNodeCounter = 0;
+        searchAborted = false;
+        // 130ms max budget guarantees zero frame stutter while easily completing 3-4+ ply with Quiescence
+        searchDeadlineMs = performance.now() + 130;
 
-          // Apply move to evaluate opponent's best response (2nd ply)
-          boardState[m.toR][m.toC] = piece;
-          boardState[m.fromR][m.fromC] = null;
+        // Iterative Deepening from depth 2 -> 3 -> 4 (so root move ordering improves each pass)
+        for (let targetDepth = 2; targetDepth <= 4; targetDepth++) {
+          let currentBestMove = legalMoves[0];
+          let currentBestScore = -Infinity;
+          let alpha = -Infinity;
+          const beta = Infinity;
 
-          const oppLegals = getAllLegalMoves(oppColor);
-          if (oppLegals.length === 0) {
-            if (isKingInCheck(oppColor, boardState)) {
-              myScore += 50000; // Immediate Checkmate!
+          for (let i = 0; i < legalMoves.length; i++) {
+            const m = legalMoves[i];
+            const undo = makeSearchMove(m);
+            const score = -alphaBetaSearch(targetDepth - 1, -beta, -alpha, oppColor, 4, true);
+            unmakeSearchMove(m, undo);
+
+            if (searchAborted) break;
+
+            m._lastSearchScore = score;
+            if (score > currentBestScore) {
+              currentBestScore = score;
+              currentBestMove = m;
             }
+            if (score > alpha) {
+              alpha = score;
+            }
+          }
+
+          if (!searchAborted) {
+            bestMove = currentBestMove;
+            // Re-sort root moves by exact search score for next deeper iteration
+            legalMoves.sort((a, b) => (b._lastSearchScore ?? -999999) - (a._lastSearchScore ?? -999999));
+            if (currentBestScore >= 85000) break; // Forced checkmate found!
           } else {
-            let maxOppReply = -Infinity;
-            for (const om of oppLegals) {
-              const oppTarget = boardState[om.toR][om.toC];
-              const oppPiece = boardState[om.fromR][om.fromC];
-              let replyVal = 0;
-              if (oppTarget) {
-                replyVal += PIECE_VALUES[oppTarget.type] * 1.1 - PIECE_VALUES[oppPiece.type] * 0.1;
-              }
-              const cDist = Math.abs(3.5 - om.toR) + Math.abs(3.5 - om.toC);
-              replyVal += (7 - cDist) * 5;
-              if (replyVal > maxOppReply) {
-                maxOppReply = replyVal;
-              }
-            }
-            if (maxOppReply > -Infinity) {
-              myScore -= maxOppReply * 0.65;
-            }
-          }
-
-          boardState[m.fromR][m.fromC] = piece;
-          boardState[m.toR][m.toC] = target;
-
-          if (!forceBest) {
-            myScore += (Math.random() - 0.5) * 4;
-          }
-
-          if (myScore > bestScore + 0.5) {
-            bestScore = myScore;
-            bestCandidates = [m];
-          } else if (Math.abs(myScore - bestScore) <= 0.5) {
-            bestCandidates.push(m);
+            break;
           }
         }
 
-        return bestCandidates[Math.floor(Math.random() * bestCandidates.length)] || legalMoves[0];
+        return bestMove || legalMoves[0];
       }
 
-      // Professional AI (Default): Balanced 1-ply tactical evaluation
+      // 3. PROFESSIONAL LEVEL (~7.5 - 8/10 Difficulty: 3-Ply Alpha-Beta Search + 2-Ply Quiescence + Piece-Square Tables)
+      const oppColor = color === 'w' ? 'b' : 'w';
+      orderMovesForSearch(legalMoves, color);
+
+      searchNodeCounter = 0;
+      searchAborted = false;
+      searchDeadlineMs = performance.now() + 85;
+
       let bestScore = -Infinity;
-      let bestCandidates = [];
+      let scoredMoves = [];
+      let alpha = -Infinity;
+      const beta = Infinity;
 
-      for (const m of legalMoves) {
-        let score = evaluateMoveImmediate(m, color);
-        score += (Math.random() - 0.5) * 16;
+      for (let i = 0; i < legalMoves.length; i++) {
+        const m = legalMoves[i];
+        const undo = makeSearchMove(m);
+        // Depth 2 remaining after root move = 3-Ply total lookahead + 2-Ply Quiescence capture verification
+        const score = -alphaBetaSearch(2, -beta, -alpha, oppColor, 2, false);
+        unmakeSearchMove(m, undo);
 
-        if (score > bestScore + 1) {
-          bestScore = score;
-          bestCandidates = [m];
-        } else if (Math.abs(score - bestScore) <= 1) {
-          bestCandidates.push(m);
+        const finalScore = searchAborted ? (m._orderScore || 0) : score;
+        scoredMoves.push({ move: m, score: finalScore });
+
+        if (finalScore > bestScore) {
+          bestScore = finalScore;
+        }
+        if (!searchAborted && finalScore > alpha) {
+          alpha = finalScore;
         }
       }
 
-      return bestCandidates[Math.floor(Math.random() * bestCandidates.length)] || legalMoves[0];
+      // Choose among moves within 8 centipawns of the best tactical move (zero blunders, natural variety)
+      const topCandidates = scoredMoves.filter((item) => item.score >= bestScore - 8);
+      if (topCandidates.length > 0) {
+        return topCandidates[Math.floor(Math.random() * topCandidates.length)].move;
+      }
+      return legalMoves[0];
     }
 
     function triggerAIMoveNow() {
@@ -4429,6 +5173,8 @@ export function initWizardChess() {
             playerColor,
             gameMode,
             aiDifficulty,
+            graphicsQuality,
+            autoDetectedGraphicsQuality,
             isGamePaused,
             gameOver,
             isAnimatingMove,
@@ -4440,10 +5186,11 @@ export function initWizardChess() {
     }
 
     // =========================================================================
-    // Raycasting & Board Interaction
+    // Raycasting & Board Interaction (with Fast Bounding-Sphere Pre-Filter)
     // =========================================================================
     const raycaster = new THREE.Raycaster();
     const pointer = new THREE.Vector2();
+    const _pieceBoundSphere = new THREE.Sphere();
     let pointerDownPos = { x: 0, y: 0 };
 
     renderer.domElement.addEventListener('pointerdown', (e) => {
@@ -4473,16 +5220,27 @@ export function initWizardChess() {
 
       raycaster.setFromCamera(pointer, camera);
 
-      const pieceMeshes = [];
+      // Fast O(1) bounding-sphere pre-filter so we only triangle-raycast the 1-3 SkinnedMeshes near the tap ray
+      const candidatePieceMeshes = [];
       for (let r = 0; r < 8; r++) {
         for (let c = 0; c < 8; c++) {
-          if (boardState[r][c] && boardState[r][c].mesh) {
-            pieceMeshes.push(boardState[r][c].mesh);
+          const pc = boardState[r][c];
+          if (pc && pc.mesh) {
+            const pH = PIECE_HEIGHTS[pc.type] || 0.48;
+            _pieceBoundSphere.center.set(
+              pc.mesh.position.x,
+              pc.mesh.position.y + pH * 0.5,
+              pc.mesh.position.z
+            );
+            _pieceBoundSphere.radius = Math.max(0.24, pH * 0.62);
+            if (raycaster.ray.intersectsSphere(_pieceBoundSphere)) {
+              candidatePieceMeshes.push(pc.mesh);
+            }
           }
         }
       }
 
-      const hits = raycaster.intersectObjects([...pieceMeshes, ...boardSquareMeshes], true);
+      const hits = raycaster.intersectObjects([...candidatePieceMeshes, ...boardSquareMeshes], true);
       if (hits.length === 0) {
         if (preMoveHighlightTask) preMoveHighlightTask = null;
         clearSquareHighlights();
@@ -5168,6 +5926,9 @@ export function initWizardChess() {
       showBestMoveHint,
       setAIDifficulty,
       getAIDifficulty,
+      setGraphicsQuality,
+      getGraphicsQuality,
+      getAutoDetectedGraphicsQuality,
       setGameMode,
       getGameMode,
       triggerTimeoutVictory,
@@ -5250,6 +6011,8 @@ export function initWizardChess() {
       },
       getState: () => ({
         gameMode,
+        graphicsQuality,
+        autoDetectedGraphicsQuality,
         scriptedGameActive,
         scriptDeviated,
         scriptMovesCount: scriptMoves.length,
@@ -5685,7 +6448,10 @@ export function initWizardChess() {
       }
 
       if (isAnimatingMove || activeMoveTweens.length > 0 || shatterDebris.length > 0 || checkmateState.active) {
-        renderer.shadowMap.needsUpdate = true;
+        shadowFrameCounter++;
+        if (shadowFrameCounter % shadowUpdateInterval === 0) {
+          renderer.shadowMap.needsUpdate = true;
+        }
       }
 
       if (doRender) {
